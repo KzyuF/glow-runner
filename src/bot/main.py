@@ -1,1 +1,53 @@
-"""Bot entry point. Claude Code: set up aiogram 3.x Dispatcher, register routers, run polling."""
+"""Bot entry point — dispatcher setup, router registration, polling."""
+
+import asyncio
+import logging
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+
+from src.bot.middlewares import DbSessionMiddleware, RateLimitMiddleware
+from src.handlers import admin, buy, keys, profile, start
+from src.models.database import init_db
+from src.utils.config import settings
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+async def main() -> None:
+    await init_db()
+
+    bot = Bot(
+        token=settings.bot_token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
+
+    dp = Dispatcher()
+
+    # Middlewares
+    dp.update.middleware(DbSessionMiddleware())
+    dp.update.middleware(RateLimitMiddleware())
+
+    # Routers
+    dp.include_router(start.router)
+    dp.include_router(buy.router)
+    dp.include_router(keys.router)
+    dp.include_router(profile.router)
+    dp.include_router(admin.router)
+
+    logger.info("Бот запущен")
+    try:
+        await dp.start_polling(bot)
+    finally:
+        from src.services.marzban import marzban_client
+        await marzban_client.close()
+        await bot.session.close()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
