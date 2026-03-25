@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  vpn-bot:
+    build: .
+    container_name: vpn-telegram-bot
+    restart: unless-stopped
+    env_file:
+      - config/.env
+    volumes:
+      - ./data:/app/data
