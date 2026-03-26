@@ -34,8 +34,7 @@ async def show_profile(callback: CallbackQuery, session: AsyncSession) -> None:
         try:
             usage = await marzban_client.get_user_usage(user.marzban_username)
             used = bytes_to_gb(usage["used_traffic"])
-            limit = bytes_to_gb(usage["data_limit"])
-            text += f"Трафик: {used} / {limit} ГБ\n"
+            text += f"Использовано трафика: {used} ГБ\n"
         except Exception:
             logger.exception("Ошибка получения данных из Marzban")
             text += "Трафик: нет данных\n"
