@@ -1,5 +1,5 @@
+cat > /root/glow-runner/src/handlers/buy.py << 'ENDOFFILE'
 """Subscription purchase flow with Telegram Stars."""
-
 import logging
 
 from aiogram import Bot, Router
@@ -32,18 +32,25 @@ async def show_plans(callback: CallbackQuery) -> None:
 async def send_invoice(callback: CallbackQuery, bot: Bot) -> None:
     plan_key = callback.data.split(":")[1]
     plan = PLANS.get(plan_key)
+    logger.info(f"Plan selected: {plan_key}, plan={plan}")
     if not plan:
         await callback.answer("Неизвестный тариф", show_alert=True)
         return
 
-    await bot.send_invoice(
-        chat_id=callback.from_user.id,
-        title="VPN-подписка",
-        description=plan["label"],
-        payload=plan_key,
-        currency="XTR",
-        prices=[LabeledPrice(label=plan["label"], amount=plan["price_stars"])],
-    )
+    try:
+        await bot.send_invoice(
+            chat_id=callback.from_user.id,
+            title="VPN-подписка",
+            description=plan["label"],
+            payload=plan_key,
+            currency="XTR",
+            prices=[LabeledPrice(label=plan["label"], amount=plan["price_stars"])],
+        )
+        logger.info("Invoice sent successfully")
+    except Exception as e:
+        logger.error(f"Failed to send invoice: {e}")
+        await callback.answer("Ошибка создания счёта. Попробуйте позже.", show_alert=True)
+
     await callback.answer()
 
 
@@ -78,3 +85,4 @@ async def on_successful_payment(message: Message, session: AsyncSession) -> None
         text = "❌ Оплата получена, но произошла ошибка активации. Обратитесь к администратору."
 
     await message.answer(text, reply_markup=back_to_main_kb(), parse_mode="HTML")
+ENDOFFILE
