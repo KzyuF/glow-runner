@@ -38,14 +38,17 @@ async def send_invoice(callback: CallbackQuery, bot: Bot) -> None:
         return
 
     try:
+        logger.info(f"Sending invoice to {callback.from_user.id}, plan={plan_key}")
         await bot.send_invoice(
             chat_id=callback.from_user.id,
             title="VPN-подписка",
             description=plan["label"],
             payload=plan_key,
+            provider_token="",
             currency="XTR",
             prices=[LabeledPrice(label=plan["label"], amount=plan["price_stars"])],
         )
+        logger.info(f"Invoice sent successfully to {callback.from_user.id}")
     except Exception as e:
         logger.error(f"Failed to send invoice: {e}")
         await callback.answer("Ошибка создания счёта. Попробуйте позже.", show_alert=True)
