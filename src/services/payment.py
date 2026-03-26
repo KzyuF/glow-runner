@@ -3,20 +3,17 @@
 PLANS = {
     "1month": {
         "days": 30,
-        "data_gb": 50,
-        "price_stars": 100,
-        "label": "1 месяц (50 ГБ)",
+        "price_stars": 75,
+        "label": "1 месяц (безлимит)",
     },
     "3months": {
         "days": 90,
-        "data_gb": 150,
-        "price_stars": 250,
-        "label": "3 месяца (150 ГБ)",
+        "price_stars": 200,
+        "label": "3 месяца (безлимит)",
     },
     "6months": {
         "days": 180,
-        "data_gb": 300,
-        "price_stars": 450,
-        "label": "6 месяцев (300 ГБ)",
+        "price_stars": 350,
+        "label": "6 месяцев (безлимит)",
     },
 }

@@ -12,7 +12,6 @@ from src.services.payment import PLANS
 
 logger = logging.getLogger(__name__)
 
-GB = 1024 ** 3
 
 
 async def get_or_create_user(
@@ -48,7 +47,6 @@ async def activate_subscription(
         new_end = now + timedelta(days=plan["days"])
 
     expire_ts = int(new_end.timestamp())
-    data_limit = plan["data_gb"] * GB
     marzban_username = f"tg_{user.telegram_id}"
 
     if user.marzban_username:
@@ -56,7 +54,7 @@ async def activate_subscription(
         await marzban_client.modify_user(
             marzban_username,
             expire=expire_ts,
-            data_limit=data_limit,
+            data_limit=0,
             status="active",
         )
     else:
@@ -64,12 +62,12 @@ async def activate_subscription(
         await marzban_client.create_user(
             username=marzban_username,
             expire_timestamp=expire_ts,
-            data_limit_bytes=data_limit,
+            data_limit_bytes=0,
         )
         user.marzban_username = marzban_username
 
     user.subscription_end = new_end
-    user.data_limit_gb = plan["data_gb"]
+    user.data_limit_gb = 0
     user.is_active = True
     await session.commit()
 

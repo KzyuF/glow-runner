@@ -47,12 +47,11 @@ async def show_key(callback: CallbackQuery, session: AsyncSession) -> None:
         return
 
     used = bytes_to_gb(usage["used_traffic"])
-    limit = bytes_to_gb(usage["data_limit"])
 
     text = (
         f"🔑 <b>Ваш VPN-ключ</b>\n\n"
         f"<code>{link}</code>\n\n"
-        f"Трафик: {used} / {limit} ГБ\n\n"
+        f"Использовано трафика: {used} ГБ\n\n"
         f"Скопируйте ссылку или отсканируйте QR-код ниже."
     )
 
