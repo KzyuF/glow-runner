@@ -1,6 +1,7 @@
 """Subscription purchase flow with Telegram Stars."""
 
 import logging
+import time
 
 from aiogram import Bot, Router
 from aiogram.types import (
@@ -18,6 +19,12 @@ from src.services.subscription import activate_subscription, get_or_create_user
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+SUPPORT_NOTE = "\n\nЕсли проблема не решится — напишите @KzyuF"
+
+# Double-click protection: user_id -> last invoice timestamp
+_invoice_cooldown: dict[int, float] = {}
+COOLDOWN_SECONDS = 5.0
 
 
 @router.callback_query(lambda c: c.data == "buy")
@@ -37,10 +44,18 @@ async def send_invoice(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Неизвестный тариф", show_alert=True)
         return
 
+    # Double-click protection
+    user_id = callback.from_user.id
+    now = time.monotonic()
+    if now - _invoice_cooldown.get(user_id, 0) < COOLDOWN_SECONDS:
+        await callback.answer("Счёт уже отправлен, подождите.", show_alert=True)
+        return
+    _invoice_cooldown[user_id] = now
+
     try:
-        logger.info(f"Sending invoice to {callback.from_user.id}, plan={plan_key}")
+        logger.info(f"Sending invoice to {user_id}, plan={plan_key}")
         await bot.send_invoice(
-            chat_id=callback.from_user.id,
+            chat_id=user_id,
             title="VPN-подписка",
             description=plan["label"],
             payload=plan_key,
@@ -48,10 +63,14 @@ async def send_invoice(callback: CallbackQuery, bot: Bot) -> None:
             currency="XTR",
             prices=[LabeledPrice(label=plan["label"], amount=plan["price_stars"])],
         )
-        logger.info(f"Invoice sent successfully to {callback.from_user.id}")
+        logger.info(f"Invoice sent successfully to {user_id}")
     except Exception as e:
         logger.error(f"Failed to send invoice: {e}")
-        await callback.answer("Ошибка создания счёта. Попробуйте позже.", show_alert=True)
+        _invoice_cooldown.pop(user_id, None)
+        await callback.answer(
+            f"Ошибка создания счёта. Попробуйте позже.{SUPPORT_NOTE}",
+            show_alert=True,
+        )
         return
     await callback.answer()
 
@@ -84,6 +103,9 @@ async def on_successful_payment(message: Message, session: AsyncSession) -> None
         )
     except Exception:
         logger.exception("Ошибка активации подписки")
-        text = "❌ Оплата получена, но произошла ошибка активации. Обратитесь к администратору."
+        text = (
+            "❌ Оплата получена, но произошла ошибка активации. "
+            "Обратитесь к администратору." + SUPPORT_NOTE
+        )
 
     await message.answer(text, reply_markup=back_to_main_kb(), parse_mode="HTML")

@@ -12,6 +12,7 @@ def main_menu_kb() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🔑 Мой VPN-ключ", callback_data="my_key")],
             [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
             [InlineKeyboardButton(text="❓ Как подключиться", callback_data="howto")],
+            [InlineKeyboardButton(text="💬 Поддержка", callback_data="support")],
         ]
     )
 

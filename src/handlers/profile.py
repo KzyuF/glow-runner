@@ -14,6 +14,8 @@ from src.utils.helpers import bytes_to_gb, format_date, format_expiry_status
 router = Router()
 logger = logging.getLogger(__name__)
 
+SUPPORT_NOTE = "\n\nЕсли проблема не решится — напишите @KzyuF"
+
 
 @router.callback_query(lambda c: c.data == "profile")
 async def show_profile(callback: CallbackQuery, session: AsyncSession) -> None:
@@ -37,7 +39,7 @@ async def show_profile(callback: CallbackQuery, session: AsyncSession) -> None:
             text += f"Использовано трафика: {used} ГБ\n"
         except Exception:
             logger.exception("Ошибка получения данных из Marzban")
-            text += "Трафик: нет данных\n"
+            text += "Трафик: нет данных" + SUPPORT_NOTE + "\n"
 
     kb = renew_kb() if not user.is_active else back_to_main_kb()
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")

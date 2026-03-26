@@ -33,12 +33,12 @@ async def main() -> None:
     dp.update.middleware(DbSessionMiddleware())
     dp.update.middleware(RateLimitMiddleware())
 
-    # Routers
-    dp.include_router(start.router)
+    # Routers — start.router last because it has the fallback message handler
     dp.include_router(buy.router)
     dp.include_router(keys.router)
     dp.include_router(profile.router)
     dp.include_router(admin.router)
+    dp.include_router(start.router)
 
     logger.info("Бот запущен")
     try:

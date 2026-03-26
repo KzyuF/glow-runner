@@ -13,6 +13,12 @@ from src.services.payment import PLANS
 logger = logging.getLogger(__name__)
 
 
+def _make_marzban_username(telegram_username: str | None, telegram_id: int) -> str:
+    """Use Telegram @username if available, otherwise tg_{id}."""
+    if telegram_username:
+        return telegram_username
+    return f"tg_{telegram_id}"
+
 
 async def get_or_create_user(
     session: AsyncSession,
@@ -47,10 +53,11 @@ async def activate_subscription(
         new_end = now + timedelta(days=plan["days"])
 
     expire_ts = int(new_end.timestamp())
-    marzban_username = f"tg_{user.telegram_id}"
+    marzban_username = _make_marzban_username(user.username, user.telegram_id)
 
     if user.marzban_username:
-        # Extend existing user
+        # Use existing marzban username for existing users
+        marzban_username = user.marzban_username
         await marzban_client.modify_user(
             marzban_username,
             expire=expire_ts,

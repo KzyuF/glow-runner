@@ -1,4 +1,4 @@
-"""VPN key handler — show subscription link, QR code, traffic."""
+"""VPN key handler — show vless:// link, QR code, traffic."""
 
 import io
 import logging
@@ -16,6 +16,8 @@ from src.utils.helpers import bytes_to_gb
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+SUPPORT_NOTE = "\n\nЕсли проблема не решится — напишите @KzyuF"
 
 
 @router.callback_query(lambda c: c.data == "my_key")
@@ -40,7 +42,7 @@ async def show_key(callback: CallbackQuery, session: AsyncSession) -> None:
     except Exception:
         logger.exception("Ошибка получения данных из Marzban")
         await callback.message.edit_text(
-            "⚠️ Сервис временно недоступен. Попробуйте позже.",
+            "⚠️ Сервис временно недоступен. Попробуйте позже." + SUPPORT_NOTE,
             reply_markup=back_to_main_kb(),
         )
         await callback.answer()
@@ -61,7 +63,10 @@ async def show_key(callback: CallbackQuery, session: AsyncSession) -> None:
     img.save(buf, format="PNG")
     buf.seek(0)
 
-    await callback.message.delete()
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await callback.message.answer_photo(
         photo=BufferedInputFile(buf.read(), filename="vpn_qr.png"),
         caption=text,
