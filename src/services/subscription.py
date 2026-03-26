@@ -36,7 +36,7 @@ async def activate_subscription(
     user: User,
     plan_key: str,
 ) -> str:
-    """Create or extend subscription. Returns Marzban subscription link."""
+    """Create or extend subscription. Returns vless:// link."""
     plan = PLANS[plan_key]
     now = datetime.utcnow()
 
@@ -71,5 +71,5 @@ async def activate_subscription(
     user.is_active = True
     await session.commit()
 
-    link = await marzban_client.get_subscription_link(marzban_username)
+    link = await marzban_client.get_vless_link(marzban_username)
     return link

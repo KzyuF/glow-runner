@@ -35,7 +35,7 @@ async def show_key(callback: CallbackQuery, session: AsyncSession) -> None:
         return
 
     try:
-        link = await marzban_client.get_subscription_link(user.marzban_username)
+        link = await marzban_client.get_vless_link(user.marzban_username)
         usage = await marzban_client.get_user_usage(user.marzban_username)
     except Exception:
         logger.exception("Ошибка получения данных из Marzban")

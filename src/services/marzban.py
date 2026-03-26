@@ -79,12 +79,14 @@ class MarzbanClient:
     async def delete_user(self, username: str) -> None:
         await self._request("DELETE", f"/user/{username}")
 
-    async def get_subscription_link(self, username: str) -> str:
+    async def get_vless_link(self, username: str) -> str:
+        """Get first vless:// link from user's links field."""
         data = await self.get_user(username)
-        token = data.get("subscription_url", "")
-        if token.startswith("http"):
-            return token
-        return f"{settings.marzban_address}{token}"
+        links = data.get("links", [])
+        for link in links:
+            if link.startswith("vless://"):
+                return link
+        raise ValueError(f"No vless:// link found for user {username}")
 
     async def get_user_usage(self, username: str) -> dict:
         """Return dict with used_traffic, data_limit, expire, status."""
