@@ -13,6 +13,7 @@ def main_menu_kb() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
             [InlineKeyboardButton(text="❓ Как подключиться", callback_data="howto")],
             [InlineKeyboardButton(text="💬 Поддержка", callback_data="support")],
+            [InlineKeyboardButton(text="ℹ️ Информация", callback_data="info")],
         ]
     )
 
@@ -38,6 +39,22 @@ def back_to_main_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Главное меню", callback_data="back_main")]
+        ]
+    )
+
+
+def info_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(
+                text="Пользовательское соглашение",
+                url="https://telegra.ph/Polzovatelskoe-soglashenie-GlowVPN-03-27",
+            )],
+            [InlineKeyboardButton(
+                text="Политика конфиденциальности",
+                url="https://telegra.ph/Politika-konfidencialnosti-GlowVPN-03-27",
+            )],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
         ]
     )
 

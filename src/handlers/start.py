@@ -7,7 +7,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.bot.keyboards import back_to_main_kb, main_menu_kb
+from src.bot.keyboards import back_to_main_kb, info_kb, main_menu_kb
 from src.services.subscription import get_or_create_user
 
 router = Router()
@@ -84,6 +84,15 @@ async def support(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
         "💬 По всем вопросам пишите: @KzyuF",
         reply_markup=back_to_main_kb(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data == "info")
+async def info(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "📄 Документы GlowVPN:",
+        reply_markup=info_kb(),
     )
     await callback.answer()
 
