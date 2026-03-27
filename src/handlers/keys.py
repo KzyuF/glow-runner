@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import qrcode
 
 from src.bot.keyboards import back_to_main_kb
-from src.services.marzban import marzban_client
+from src.services.xui_client import xui_client
 from src.services.subscription import get_or_create_user
 from src.utils.helpers import bytes_to_gb
 
@@ -37,10 +37,10 @@ async def show_key(callback: CallbackQuery, session: AsyncSession) -> None:
         return
 
     try:
-        link = await marzban_client.get_vless_link(user.marzban_username)
-        usage = await marzban_client.get_user_usage(user.marzban_username)
+        link = await xui_client.get_vless_link(user.marzban_username)
+        usage = await xui_client.get_client_traffic(user.marzban_username)
     except Exception:
-        logger.exception("Ошибка получения данных из Marzban")
+        logger.exception("Ошибка получения данных из 3X-UI")
         await callback.message.edit_text(
             "⚠️ Сервис временно недоступен. Попробуйте позже." + SUPPORT_NOTE,
             reply_markup=back_to_main_kb(),

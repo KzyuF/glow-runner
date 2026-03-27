@@ -7,13 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.user import User
-from src.services.marzban import marzban_client
+from src.services.xui_client import xui_client
 from src.services.payment import PLANS
 
 logger = logging.getLogger(__name__)
 
 
-def _make_marzban_username(telegram_username: str | None, telegram_id: int) -> str:
+def _make_client_email(telegram_username: str | None, telegram_id: int) -> str:
     """Use Telegram @username if available, otherwise tg_{id}."""
     if telegram_username:
         return telegram_username
@@ -52,31 +52,32 @@ async def activate_subscription(
     else:
         new_end = now + timedelta(days=plan["days"])
 
-    expire_ts = int(new_end.timestamp())
-    marzban_username = _make_marzban_username(user.username, user.telegram_id)
+    expire_ts_ms = int(new_end.timestamp() * 1000)
+    client_email = _make_client_email(user.username, user.telegram_id)
 
     if user.marzban_username:
-        # Use existing marzban username for existing users
-        marzban_username = user.marzban_username
-        await marzban_client.modify_user(
-            marzban_username,
-            expire=expire_ts,
-            data_limit=0,
-            status="active",
+        # Existing client — get UUID from the stored email and update
+        client_email = user.marzban_username
+        link = await xui_client.get_vless_link(client_email)
+        # Extract UUID from vless://UUID@...
+        client_uuid = link.split("://")[1].split("@")[0]
+        await xui_client.update_client(
+            client_uuid=client_uuid,
+            email=client_email,
+            expire_timestamp_ms=expire_ts_ms,
         )
     else:
-        # Create new Marzban user
-        await marzban_client.create_user(
-            username=marzban_username,
-            expire_timestamp=expire_ts,
-            data_limit_bytes=0,
+        # Create new 3X-UI client
+        await xui_client.create_client(
+            email=client_email,
+            expire_timestamp_ms=expire_ts_ms,
         )
-        user.marzban_username = marzban_username
+        user.marzban_username = client_email
 
     user.subscription_end = new_end
     user.data_limit_gb = 0
     user.is_active = True
     await session.commit()
 
-    link = await marzban_client.get_vless_link(marzban_username)
+    link = await xui_client.get_vless_link(client_email)
     return link

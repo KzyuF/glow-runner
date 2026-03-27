@@ -44,8 +44,8 @@ async def main() -> None:
     try:
         await dp.start_polling(bot)
     finally:
-        from src.services.marzban import marzban_client
-        await marzban_client.close()
+        from src.services.xui_client import xui_client
+        await xui_client.close()
         await bot.session.close()
 
 

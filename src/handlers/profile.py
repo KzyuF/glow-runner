@@ -7,7 +7,7 @@ from aiogram.types import CallbackQuery
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot.keyboards import back_to_main_kb, renew_kb
-from src.services.marzban import marzban_client
+from src.services.xui_client import xui_client
 from src.services.subscription import get_or_create_user
 from src.utils.helpers import bytes_to_gb, format_date, format_expiry_status
 
@@ -34,11 +34,11 @@ async def show_profile(callback: CallbackQuery, session: AsyncSession) -> None:
 
     if user.marzban_username:
         try:
-            usage = await marzban_client.get_user_usage(user.marzban_username)
+            usage = await xui_client.get_client_traffic(user.marzban_username)
             used = bytes_to_gb(usage["used_traffic"])
             text += f"Использовано трафика: {used} ГБ\n"
         except Exception:
-            logger.exception("Ошибка получения данных из Marzban")
+            logger.exception("Ошибка получения данных из 3X-UI")
             text += "Трафик: нет данных" + SUPPORT_NOTE + "\n"
 
     kb = renew_kb() if not user.is_active else back_to_main_kb()
