@@ -80,7 +80,7 @@ class XUIClient:
             "enable": True,
             "expiryTime": expire_timestamp_ms,
             "totalGB": 0,
-            "limitIp": 2,
+            "limitIp": 3,
         }
 
         payload = {
@@ -114,7 +114,7 @@ class XUIClient:
             "enable": True,
             "expiryTime": expire_timestamp_ms,
             "totalGB": 0,
-            "limitIp": 2,
+            "limitIp": 3,
         }
 
         payload = {
