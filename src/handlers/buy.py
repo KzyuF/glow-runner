@@ -81,7 +81,7 @@ async def on_pre_checkout(query: PreCheckoutQuery) -> None:
 
 
 @router.message(lambda m: m.successful_payment is not None)
-async def on_successful_payment(message: Message, session: AsyncSession) -> None:
+async def on_successful_payment(message: Message, session: AsyncSession, bot: Bot) -> None:
     payment: SuccessfulPayment = message.successful_payment
     plan_key = payment.invoice_payload
 
@@ -103,9 +103,14 @@ async def on_successful_payment(message: Message, session: AsyncSession) -> None
         )
     except Exception:
         logger.exception("Ошибка активации подписки")
-        text = (
-            "❌ Оплата получена, но произошла ошибка активации. "
-            "Обратитесь к администратору." + SUPPORT_NOTE
-        )
+        try:
+            await bot.refund_star_payment(
+                user_id=message.from_user.id,
+                telegram_payment_charge_id=payment.telegram_payment_charge_id,
+            )
+            logger.info(f"Refund issued to {message.from_user.id}")
+        except Exception:
+            logger.exception("Ошибка возврата оплаты")
+        text = "❌ Произошла ошибка. Оплата возвращена. Попробуйте позже или напишите @KzyuF"
 
     await message.answer(text, reply_markup=back_to_main_kb(), parse_mode="HTML")
