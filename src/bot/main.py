@@ -40,6 +40,10 @@ async def main() -> None:
     dp.include_router(admin.router)
     dp.include_router(start.router)
 
+    # Start background notifier
+    from src.services.notifier import run_notifier
+    asyncio.create_task(run_notifier(bot))
+
     logger.info("Бот запущен")
     try:
         await dp.start_polling(bot)

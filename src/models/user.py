@@ -18,4 +18,5 @@ class User(Base):
     subscription_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     data_limit_gb: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    notifications_sent: Mapped[str | None] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

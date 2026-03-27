@@ -77,6 +77,7 @@ async def activate_subscription(
     user.subscription_end = new_end
     user.data_limit_gb = 0
     user.is_active = True
+    user.notifications_sent = ""
     await session.commit()
 
     link = await xui_client.get_vless_link(client_email)
