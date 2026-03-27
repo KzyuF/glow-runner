@@ -67,6 +67,7 @@ class XUIClient:
         self,
         email: str,
         expire_timestamp_ms: int,
+        limit_ip: int = 3,
     ) -> str:
         """Create a client in the reality inbound. Returns the client UUID."""
         inbound = await self._get_reality_inbound()
@@ -80,7 +81,7 @@ class XUIClient:
             "enable": True,
             "expiryTime": expire_timestamp_ms,
             "totalGB": 0,
-            "limitIp": 3,
+            "limitIp": limit_ip,
         }
 
         payload = {

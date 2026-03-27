@@ -44,6 +44,10 @@ async def main() -> None:
     from src.services.notifier import run_notifier
     asyncio.create_task(run_notifier(bot))
 
+    # Start trial HTTP server
+    from src.web.trial import run_trial_server
+    await run_trial_server()
+
     logger.info("Бот запущен")
     try:
         await dp.start_polling(bot)
