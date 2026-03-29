@@ -187,7 +187,7 @@ async def handle_freekassa(request: web.Request) -> web.Response:
         try:
             await bot.send_message(
                 telegram_id,
-                "❌ Оплата получена, но произошла ошибка активации. Напишите @KzyuF",
+                "❌ Оплата получена, но произошла ошибка активации. Обратитесь в поддержку через главное меню.",
             )
         except Exception:
             pass

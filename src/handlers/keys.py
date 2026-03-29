@@ -17,7 +17,7 @@ from src.utils.helpers import bytes_to_gb
 router = Router()
 logger = logging.getLogger(__name__)
 
-SUPPORT_NOTE = "\n\nЕсли проблема не решится — напишите @KzyuF"
+SUPPORT_NOTE = "\n\nЕсли проблема не решится — обратитесь в поддержку через главное меню."
 
 
 @router.callback_query(lambda c: c.data == "my_key")

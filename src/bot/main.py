@@ -8,7 +8,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from src.bot.middlewares import DbSessionMiddleware, RateLimitMiddleware
-from src.handlers import admin, buy, keys, profile, start
+from src.handlers import admin, buy, keys, profile, start, support
 from src.models.database import init_db
 from src.utils.config import settings
 
@@ -38,6 +38,7 @@ async def main() -> None:
     dp.include_router(keys.router)
     dp.include_router(profile.router)
     dp.include_router(admin.router)
+    dp.include_router(support.router)
     dp.include_router(start.router)
 
     # Start background notifier

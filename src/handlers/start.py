@@ -30,7 +30,7 @@ HELP_TEXT = (
     "/start — Главное меню\n"
     "/menu — Главное меню\n"
     "/help — Список команд\n\n"
-    "По всем вопросам пишите: @KzyuF"
+    "По всем вопросам — обратитесь в поддержку через главное меню."
 )
 
 HOWTO_CHOOSE_TEXT = "📲 <b>Как подключиться к VPN</b>\n\nВыберите вашу платформу:"
@@ -184,15 +184,6 @@ async def howto_back(callback: CallbackQuery) -> None:
     await callback.answer()
     await callback.message.edit_text(
         HOWTO_CHOOSE_TEXT, reply_markup=howto_platforms_kb(), parse_mode="HTML"
-    )
-
-
-@router.callback_query(lambda c: c.data == "support")
-async def support(callback: CallbackQuery) -> None:
-    await callback.answer()
-    await callback.message.edit_text(
-        "💬 По всем вопросам пишите: @KzyuF",
-        reply_markup=back_to_main_kb(),
     )
 
 

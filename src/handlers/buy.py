@@ -31,7 +31,7 @@ from src.utils.config import settings
 router = Router()
 logger = logging.getLogger(__name__)
 
-SUPPORT_NOTE = "\n\nЕсли проблема не решится — напишите @KzyuF"
+SUPPORT_NOTE = "\n\nЕсли проблема не решится — обратитесь в поддержку через главное меню."
 
 # Double-click protection: user_id -> last invoice timestamp
 _invoice_cooldown: dict[int, float] = {}
@@ -130,7 +130,7 @@ async def on_successful_payment(message: Message, session: AsyncSession, bot: Bo
             logger.info(f"Refund issued to {message.from_user.id}")
         except Exception:
             logger.exception("Ошибка возврата оплаты")
-        text = "❌ Произошла ошибка. Оплата возвращена. Попробуйте позже или напишите @KzyuF"
+        text = "❌ Произошла ошибка. Оплата возвращена. Попробуйте позже или обратитесь в поддержку через главное меню."
 
     await message.answer(text, reply_markup=back_to_main_kb(), parse_mode="HTML")
 
