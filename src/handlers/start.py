@@ -69,17 +69,34 @@ HOWTO_IOS = (
     "Выберите добавленный сервер и нажмите кнопку подключения. Готово!"
 )
 
-HOWTO_DESKTOP = (
-    "💻 <b>Подключение на Windows/Mac</b>\n\n"
-    "<b>Шаг 1: Скачайте Hiddify</b>\n"
-    "• <a href='https://hiddify.com/'>Windows/Mac/Linux — Hiddify</a>\n"
-    "• <a href='https://github.com/2dust/v2rayN/releases'>V2RayN (Windows)</a>\n\n"
+HOWTO_WINDOWS = (
+    "🪟 <b>Подключение на Windows</b>\n\n"
+    "<b>Шаг 1: Скачайте приложение</b>\n"
+    "• <a href='https://hiddify.com'>Hiddify</a>\n"
+    "• <a href='https://happ.su'>HAPP</a>\n"
+    "Скачайте установщик с сайта и установите.\n\n"
     "<b>Шаг 2: Скопируйте VPN-ключ</b>\n"
     "Нажмите «🔑 Мой VPN-ключ» в боте. Скопируйте ключ.\n\n"
     "<b>Шаг 3: Импортируйте ключ</b>\n"
-    "Откройте приложение → добавьте сервер из буфера обмена.\n\n"
+    "Откройте приложение → нажмите «+» → «Импорт из буфера обмена».\n\n"
     "<b>Шаг 4: Подключитесь</b>\n"
-    "Выберите сервер и нажмите подключение. Готово!"
+    "Выберите сервер и нажмите кнопку подключения. Готово!"
+)
+
+HOWTO_MACOS = (
+    "🍎 <b>Подключение на macOS</b>\n\n"
+    "⚠️ App Store в России ограничен, скачивайте приложения напрямую:\n"
+    "• <a href='https://github.com/hiddify/hiddify-app/releases/latest/download/Hiddify-MacOS.dmg'>Hiddify</a>\n"
+    "• <a href='https://github.com/Happ-proxy/happ-desktop/releases/latest/download/Happ.macOS.universal.dmg'>HAPP</a>\n"
+    "Скачайте .dmg файл, откройте и перетащите в папку Applications.\n\n"
+    "<b>Шаг 2: Скопируйте VPN-ключ</b>\n"
+    "Нажмите «🔑 Мой VPN-ключ» в боте. Скопируйте ключ.\n\n"
+    "<b>Шаг 3: Импортируйте ключ</b>\n"
+    "Откройте приложение → нажмите «+» → «Импорт из буфера обмена».\n\n"
+    "<b>Шаг 4: Подключитесь</b>\n"
+    "Выберите сервер и нажмите кнопку подключения. Готово!\n\n"
+    "Если macOS не даёт открыть — зайдите в Системные настройки → "
+    "Конфиденциальность и безопасность → нажмите «Всё равно открыть»."
 )
 
 
@@ -170,11 +187,20 @@ async def howto_ios(callback: CallbackQuery) -> None:
     )
 
 
-@router.callback_query(lambda c: c.data == "howto_desktop")
-async def howto_desktop(callback: CallbackQuery) -> None:
+@router.callback_query(lambda c: c.data == "howto_windows")
+async def howto_windows(callback: CallbackQuery) -> None:
     await callback.answer()
     await callback.message.edit_text(
-        HOWTO_DESKTOP, reply_markup=howto_back_kb(), parse_mode="HTML",
+        HOWTO_WINDOWS, reply_markup=howto_back_kb(), parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+
+@router.callback_query(lambda c: c.data == "howto_macos")
+async def howto_macos(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.edit_text(
+        HOWTO_MACOS, reply_markup=howto_back_kb(), parse_mode="HTML",
         disable_web_page_preview=True,
     )
 

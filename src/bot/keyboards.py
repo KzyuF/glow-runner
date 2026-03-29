@@ -92,7 +92,8 @@ def howto_platforms_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="📱 Android", callback_data="howto_android")],
             [InlineKeyboardButton(text="🍎 iPhone/iPad", callback_data="howto_ios")],
-            [InlineKeyboardButton(text="💻 Windows/Mac", callback_data="howto_desktop")],
+            [InlineKeyboardButton(text="🪟 Windows", callback_data="howto_windows")],
+            [InlineKeyboardButton(text="🍎 macOS", callback_data="howto_macos")],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
         ]
     )
