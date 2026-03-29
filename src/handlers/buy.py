@@ -60,7 +60,8 @@ async def show_stars_plans(callback: CallbackQuery) -> None:
 
 @router.callback_query(lambda c: c.data and c.data.startswith("plan:"))
 async def send_invoice(callback: CallbackQuery, bot: Bot) -> None:
-    plan_key = callback.data.split(":")[1]
+    parts = callback.data.split(":", 1)
+    plan_key = parts[1] if len(parts) > 1 else ""
     logger.info(f"Plan selected: {plan_key}")
     plan = PLANS.get(plan_key)
     if not plan:
@@ -149,7 +150,8 @@ async def show_card_plans(callback: CallbackQuery) -> None:
 
 @router.callback_query(lambda c: c.data and c.data.startswith("fk_plan:"))
 async def send_freekassa_link(callback: CallbackQuery) -> None:
-    plan_key = callback.data.split(":")[1]
+    parts = callback.data.split(":", 1)
+    plan_key = parts[1] if len(parts) > 1 else ""
     plan = PLANS.get(plan_key)
     if not plan:
         await callback.answer("Неизвестный тариф", show_alert=True)
@@ -213,3 +215,10 @@ async def send_freekassa_link(callback: CallbackQuery) -> None:
     except Exception as e:
         logger.error(f"Failed to create Freekassa order: {e}")
         _invoice_cooldown.pop(user_id, None)
+        try:
+            await callback.message.edit_text(
+                "⚠️ Не удалось создать платёж. Попробуйте позже." + SUPPORT_NOTE,
+                reply_markup=back_to_main_kb(),
+            )
+        except Exception:
+            pass
