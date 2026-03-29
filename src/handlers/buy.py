@@ -110,7 +110,7 @@ async def on_successful_payment(message: Message, session: AsyncSession, bot: Bo
     )
 
     try:
-        link = await activate_subscription(session, user, plan_key)
+        link = await activate_subscription(session, user, plan_key, bot=bot)
         plan = PLANS[plan_key]
         text = (
             f"✅ Оплата прошла успешно!\n\n"

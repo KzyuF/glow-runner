@@ -1,13 +1,15 @@
-"""/start command, registration, and fallback handler."""
+"""/start command, registration, referral, and fallback handler."""
 
 import logging
 
 from aiogram import Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.types import CallbackQuery, Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot.keyboards import back_to_main_kb, info_kb, main_menu_kb
+from src.models.user import User
 from src.services.subscription import get_or_create_user
 
 router = Router()
@@ -43,6 +45,37 @@ HOWTO_TEXT = (
     "4. Вставьте ссылку\n"
     "5. Подключитесь!"
 )
+
+
+@router.message(CommandStart(deep_link=True))
+async def cmd_start_deep(message: Message, command: CommandObject, session: AsyncSession) -> None:
+    user = await get_or_create_user(
+        session,
+        telegram_id=message.from_user.id,
+        username=message.from_user.username,
+    )
+
+    # Handle referral deep link
+    args = command.args or ""
+    if args.startswith("ref_"):
+        ref_code = args[4:]
+        # Don't allow self-referral, and only set once
+        if not user.referred_by:
+            result = await session.execute(
+                select(User).where(
+                    User.referral_code == ref_code,
+                    User.telegram_id != user.telegram_id,
+                )
+            )
+            referrer = result.scalar_one_or_none()
+            if referrer:
+                user.referred_by = referrer.telegram_id
+                await session.commit()
+                logger.info(
+                    "User %s referred by %s", user.telegram_id, referrer.telegram_id
+                )
+
+    await message.answer(WELCOME_TEXT, reply_markup=main_menu_kb())
 
 
 @router.message(CommandStart())
@@ -98,6 +131,37 @@ async def info(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
         "📄 Документы GlowVPN:",
         reply_markup=info_kb(),
+    )
+
+
+@router.callback_query(lambda c: c.data == "referral")
+async def referral(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+
+    user = await get_or_create_user(
+        session,
+        telegram_id=callback.from_user.id,
+        username=callback.from_user.username,
+    )
+
+    if not user.is_active:
+        await callback.message.edit_text(
+            "👥 Реферальная программа доступна только для пользователей "
+            "с активной подпиской. Купите подписку чтобы приглашать друзей.",
+            reply_markup=back_to_main_kb(),
+        )
+        return
+
+    text = (
+        f"👥 <b>Пригласить друга</b>\n\n"
+        f"Поделитесь ссылкой с другом. Когда он купит подписку от 1 месяца, "
+        f"вы получите +15 дней к вашей подписке!\n\n"
+        f"Ваша ссылка:\n"
+        f"<code>https://t.me/glowvpnbot?start=ref_{user.referral_code}</code>\n\n"
+        f"Приглашено друзей: {user.referral_count}"
+    )
+    await callback.message.edit_text(
+        text, reply_markup=back_to_main_kb(), parse_mode="HTML"
     )
 
 

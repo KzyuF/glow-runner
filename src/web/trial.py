@@ -162,7 +162,7 @@ async def handle_freekassa(request: web.Request) -> web.Response:
     try:
         async with async_session() as session:
             user = await get_or_create_user(session, telegram_id, username=None)
-            link = await activate_subscription(session, user, plan_key)
+            link = await activate_subscription(session, user, plan_key, bot=bot)
 
         plan = PLANS[plan_key]
         text = (
