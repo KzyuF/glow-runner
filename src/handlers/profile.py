@@ -19,6 +19,8 @@ SUPPORT_NOTE = "\n\nЕсли проблема не решится — напиш
 
 @router.callback_query(lambda c: c.data == "profile")
 async def show_profile(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+
     user = await get_or_create_user(
         session,
         telegram_id=callback.from_user.id,
@@ -43,4 +45,3 @@ async def show_profile(callback: CallbackQuery, session: AsyncSession) -> None:
 
     kb = renew_kb() if not user.is_active else back_to_main_kb()
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    await callback.answer()

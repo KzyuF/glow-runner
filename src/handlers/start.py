@@ -63,38 +63,38 @@ async def cmd_help(message: Message) -> None:
 
 @router.callback_query(lambda c: c.data == "back_main")
 async def back_to_main(callback: CallbackQuery) -> None:
+    await callback.answer()
     try:
         await callback.message.delete()
     except Exception:
         pass
     await callback.message.answer(WELCOME_TEXT, reply_markup=main_menu_kb())
-    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data == "howto")
 async def howto(callback: CallbackQuery) -> None:
+    await callback.answer()
     await callback.message.edit_text(
         HOWTO_TEXT, reply_markup=back_to_main_kb(), parse_mode="HTML"
     )
-    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data == "support")
 async def support(callback: CallbackQuery) -> None:
+    await callback.answer()
     await callback.message.edit_text(
         "💬 По всем вопросам пишите: @KzyuF",
         reply_markup=back_to_main_kb(),
     )
-    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data == "info")
 async def info(callback: CallbackQuery) -> None:
+    await callback.answer()
     await callback.message.edit_text(
         "📄 Документы GlowVPN:",
         reply_markup=info_kb(),
     )
-    await callback.answer()
 
 
 @router.message()

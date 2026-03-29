@@ -42,20 +42,20 @@ COOLDOWN_SECONDS = 5.0
 
 @router.callback_query(lambda c: c.data == "buy")
 async def show_payment_methods(callback: CallbackQuery) -> None:
+    await callback.answer()
     await callback.message.edit_text(
         "🛒 Выберите способ оплаты:", reply_markup=payment_method_kb()
     )
-    await callback.answer()
 
 
 # ── Stars flow ─────────────────────────────────────────────────
 
 @router.callback_query(lambda c: c.data == "pay_stars")
 async def show_stars_plans(callback: CallbackQuery) -> None:
+    await callback.answer()
     await callback.message.edit_text(
         "⭐ Выберите тариф:", reply_markup=plans_stars_kb()
     )
-    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("plan:"))
@@ -74,6 +74,8 @@ async def send_invoice(callback: CallbackQuery, bot: Bot) -> None:
         return
     _invoice_cooldown[user_id] = now
 
+    await callback.answer()
+
     try:
         logger.info(f"Sending invoice to {user_id}, plan={plan_key}")
         await bot.send_invoice(
@@ -89,12 +91,6 @@ async def send_invoice(callback: CallbackQuery, bot: Bot) -> None:
     except Exception as e:
         logger.error(f"Failed to send invoice: {e}")
         _invoice_cooldown.pop(user_id, None)
-        await callback.answer(
-            f"Ошибка создания счёта. Попробуйте позже.{SUPPORT_NOTE}",
-            show_alert=True,
-        )
-        return
-    await callback.answer()
 
 
 @router.pre_checkout_query()
@@ -145,10 +141,10 @@ FREEKASSA_API_URL = "https://api.fk.life/v1/orders/create"
 
 @router.callback_query(lambda c: c.data == "pay_card")
 async def show_card_plans(callback: CallbackQuery) -> None:
+    await callback.answer()
     await callback.message.edit_text(
         "💳 Выберите тариф:", reply_markup=plans_card_kb()
     )
-    await callback.answer()
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("fk_plan:"))
@@ -165,6 +161,8 @@ async def send_freekassa_link(callback: CallbackQuery) -> None:
         await callback.answer("Счёт уже отправлен, подождите.", show_alert=True)
         return
     _invoice_cooldown[user_id] = now
+
+    await callback.answer()
 
     payment_id = str(uuid_mod.uuid4().hex[:16])
     amount = plan["price_rub"]
@@ -215,9 +213,3 @@ async def send_freekassa_link(callback: CallbackQuery) -> None:
     except Exception as e:
         logger.error(f"Failed to create Freekassa order: {e}")
         _invoice_cooldown.pop(user_id, None)
-        await callback.answer(
-            f"Ошибка создания платежа. Попробуйте позже.{SUPPORT_NOTE}",
-            show_alert=True,
-        )
-        return
-    await callback.answer()

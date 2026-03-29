@@ -22,6 +22,8 @@ SUPPORT_NOTE = "\n\nЕсли проблема не решится — напиш
 
 @router.callback_query(lambda c: c.data == "my_key")
 async def show_key(callback: CallbackQuery, session: AsyncSession) -> None:
+    await callback.answer()
+
     user = await get_or_create_user(
         session,
         telegram_id=callback.from_user.id,
@@ -33,7 +35,6 @@ async def show_key(callback: CallbackQuery, session: AsyncSession) -> None:
             "У вас пока нет активной подписки. Купите подписку, чтобы получить ключ.",
             reply_markup=back_to_main_kb(),
         )
-        await callback.answer()
         return
 
     try:
@@ -45,7 +46,6 @@ async def show_key(callback: CallbackQuery, session: AsyncSession) -> None:
             "⚠️ Сервис временно недоступен. Попробуйте позже." + SUPPORT_NOTE,
             reply_markup=back_to_main_kb(),
         )
-        await callback.answer()
         return
 
     used = bytes_to_gb(usage["used_traffic"])
@@ -73,4 +73,3 @@ async def show_key(callback: CallbackQuery, session: AsyncSession) -> None:
         reply_markup=back_to_main_kb(),
         parse_mode="HTML",
     )
-    await callback.answer()
