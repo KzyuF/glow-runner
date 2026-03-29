@@ -196,6 +196,10 @@ def create_app(bot=None) -> web.Application:
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/trial", handle_trial)
     app.router.add_post("/api/freekassa/notification", handle_freekassa)
+
+    from src.web.admin import register_admin_routes
+    register_admin_routes(app)
+
     return app
 
 
