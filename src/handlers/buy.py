@@ -1,11 +1,16 @@
-"""Subscription purchase flow with Telegram Stars."""
+"""Subscription purchase flow — Telegram Stars and Freekassa."""
 
+import hashlib
 import logging
 import time
+import uuid as uuid_mod
 
+import httpx
 from aiogram import Bot, Router
 from aiogram.types import (
     CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     LabeledPrice,
     Message,
     PreCheckoutQuery,
@@ -13,9 +18,15 @@ from aiogram.types import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.bot.keyboards import back_to_main_kb, plans_kb
+from src.bot.keyboards import (
+    back_to_main_kb,
+    payment_method_kb,
+    plans_card_kb,
+    plans_stars_kb,
+)
 from src.services.payment import PLANS
 from src.services.subscription import activate_subscription, get_or_create_user
+from src.utils.config import settings
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -27,10 +38,22 @@ _invoice_cooldown: dict[int, float] = {}
 COOLDOWN_SECONDS = 5.0
 
 
+# ── Step 1: choose payment method ──────────────────────────────
+
 @router.callback_query(lambda c: c.data == "buy")
-async def show_plans(callback: CallbackQuery) -> None:
+async def show_payment_methods(callback: CallbackQuery) -> None:
     await callback.message.edit_text(
-        "🛒 Выберите тариф:", reply_markup=plans_kb()
+        "🛒 Выберите способ оплаты:", reply_markup=payment_method_kb()
+    )
+    await callback.answer()
+
+
+# ── Stars flow ─────────────────────────────────────────────────
+
+@router.callback_query(lambda c: c.data == "pay_stars")
+async def show_stars_plans(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "⭐ Выберите тариф:", reply_markup=plans_stars_kb()
     )
     await callback.answer()
 
@@ -44,7 +67,6 @@ async def send_invoice(callback: CallbackQuery, bot: Bot) -> None:
         await callback.answer("Неизвестный тариф", show_alert=True)
         return
 
-    # Double-click protection
     user_id = callback.from_user.id
     now = time.monotonic()
     if now - _invoice_cooldown.get(user_id, 0) < COOLDOWN_SECONDS:
@@ -114,3 +136,88 @@ async def on_successful_payment(message: Message, session: AsyncSession, bot: Bo
         text = "❌ Произошла ошибка. Оплата возвращена. Попробуйте позже или напишите @KzyuF"
 
     await message.answer(text, reply_markup=back_to_main_kb(), parse_mode="HTML")
+
+
+# ── Freekassa (card/SBP) flow ─────────────────────────────────
+
+FREEKASSA_API_URL = "https://api.fk.life/v1/orders/create"
+
+
+@router.callback_query(lambda c: c.data == "pay_card")
+async def show_card_plans(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "💳 Выберите тариф:", reply_markup=plans_card_kb()
+    )
+    await callback.answer()
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("fk_plan:"))
+async def send_freekassa_link(callback: CallbackQuery) -> None:
+    plan_key = callback.data.split(":")[1]
+    plan = PLANS.get(plan_key)
+    if not plan:
+        await callback.answer("Неизвестный тариф", show_alert=True)
+        return
+
+    user_id = callback.from_user.id
+    now = time.monotonic()
+    if now - _invoice_cooldown.get(user_id, 0) < COOLDOWN_SECONDS:
+        await callback.answer("Счёт уже отправлен, подождите.", show_alert=True)
+        return
+    _invoice_cooldown[user_id] = now
+
+    payment_id = str(uuid_mod.uuid4().hex[:16])
+    amount = plan["price_rub"]
+
+    # Build signature: md5(shopId:amount:secret1:currency:paymentId)
+    sign_str = f"{settings.freekassa_shop_id}:{amount}:{settings.freekassa_secret1}:RUB:{payment_id}"
+    signature = hashlib.md5(sign_str.encode()).hexdigest()
+
+    payload = {
+        "shopId": settings.freekassa_shop_id,
+        "nonce": int(time.time()),
+        "i": 42,
+        "email": "user@glowvpn.site",
+        "ip": "127.0.0.1",
+        "amount": amount,
+        "currency": "RUB",
+        "paymentId": payment_id,
+        "signature": signature,
+        "us_telegram_id": str(user_id),
+        "us_plan": plan_key,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                FREEKASSA_API_URL,
+                json=payload,
+                headers={"Authorization": f"Bearer {settings.freekassa_api_key}"},
+            )
+            data = resp.json()
+
+        location = data.get("location")
+        if not location:
+            raise ValueError(f"No location in response: {data}")
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Перейти к оплате", url=location)],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy")],
+            ]
+        )
+        await callback.message.edit_text(
+            f"💳 Оплата тарифа: {plan['label']}\n"
+            f"Сумма: {amount} ₽\n\n"
+            f"Нажмите кнопку ниже для перехода к оплате:",
+            reply_markup=kb,
+        )
+    except Exception as e:
+        logger.error(f"Failed to create Freekassa order: {e}")
+        _invoice_cooldown.pop(user_id, None)
+        await callback.answer(
+            f"Ошибка создания платежа. Попробуйте позже.{SUPPORT_NOTE}",
+            show_alert=True,
+        )
+        return
+    await callback.answer()

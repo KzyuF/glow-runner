@@ -46,7 +46,7 @@ async def main() -> None:
 
     # Start trial HTTP server
     from src.web.trial import run_trial_server
-    await run_trial_server()
+    await run_trial_server(bot=bot)
 
     logger.info("Бот запущен")
     try:

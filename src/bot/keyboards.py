@@ -18,7 +18,17 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     )
 
 
-def plans_kb() -> InlineKeyboardMarkup:
+def payment_method_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="pay_stars")],
+            [InlineKeyboardButton(text="💳 Картой/СБП", callback_data="pay_card")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
+        ]
+    )
+
+
+def plans_stars_kb() -> InlineKeyboardMarkup:
     buttons = []
     for key, plan in PLANS.items():
         buttons.append(
@@ -30,7 +40,24 @@ def plans_kb() -> InlineKeyboardMarkup:
             ]
         )
     buttons.append(
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")]
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def plans_card_kb() -> InlineKeyboardMarkup:
+    buttons = []
+    for key, plan in PLANS.items():
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{plan['label']} — {plan['price_rub']} ₽",
+                    callback_data=f"fk_plan:{key}",
+                )
+            ]
+        )
+    buttons.append(
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy")]
     )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
