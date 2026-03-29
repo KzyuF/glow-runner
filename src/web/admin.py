@@ -3,6 +3,7 @@
 import asyncio
 import html
 import logging
+import re
 from datetime import datetime, timedelta
 
 from aiohttp import web
@@ -235,7 +236,10 @@ async def handle_user_detail(request: web.Request) -> web.Response:
     if not _check_auth(request):
         return _unauth()
 
-    telegram_id = int(request.match_info["telegram_id"])
+    try:
+        telegram_id = int(request.match_info["telegram_id"])
+    except (ValueError, TypeError):
+        return web.Response(text="Invalid telegram_id", status=400)
 
     async with async_session() as session:
         result = await session.execute(
@@ -318,9 +322,15 @@ async def handle_extend(request: web.Request) -> web.Response:
     if not _check_auth(request):
         return _unauth()
 
-    telegram_id = int(request.match_info["telegram_id"])
+    try:
+        telegram_id = int(request.match_info["telegram_id"])
+    except (ValueError, TypeError):
+        return web.Response(text="Invalid telegram_id", status=400)
     data = await request.post()
-    days = int(data.get("days", 30))
+    try:
+        days = int(data.get("days", 30))
+    except (ValueError, TypeError):
+        days = 30
 
     async with async_session() as session:
         result = await session.execute(
@@ -342,7 +352,10 @@ async def handle_extend(request: web.Request) -> web.Response:
             try:
                 new_expire_ms = int(user.subscription_end.timestamp() * 1000)
                 link = await xui_client.get_vless_link(user.marzban_username)
-                client_uuid = link.split("://")[1].split("@")[0]
+                m = re.match(r"^vless://([^@]+)@", link)
+                if not m:
+                    raise ValueError(f"Cannot parse vless link: {link[:60]}")
+                client_uuid = m.group(1)
                 await xui_client.update_client(
                     client_uuid=client_uuid,
                     email=user.marzban_username,

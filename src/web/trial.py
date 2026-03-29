@@ -156,8 +156,16 @@ async def handle_freekassa(request: web.Request) -> web.Response:
         logger.warning(f"Freekassa webhook: unknown plan {plan_key}")
         return web.Response(text="UNKNOWN PLAN", status=400)
 
-    telegram_id = int(telegram_id_str)
-    bot = request.app["bot"]
+    try:
+        telegram_id = int(telegram_id_str)
+    except (ValueError, TypeError):
+        logger.warning(f"Freekassa webhook: invalid telegram_id: {telegram_id_str}")
+        return web.Response(text="INVALID TELEGRAM_ID", status=400)
+
+    bot = request.app.get("bot")
+    if bot is None:
+        logger.error("Freekassa webhook: bot not available in app")
+        return web.Response(text="BOT UNAVAILABLE", status=500)
 
     try:
         async with async_session() as session:

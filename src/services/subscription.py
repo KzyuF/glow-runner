@@ -1,6 +1,7 @@
 """Subscription service — create, renew, expire, referral bonus."""
 
 import logging
+import re
 from datetime import datetime, timedelta
 
 from aiogram import Bot
@@ -14,6 +15,16 @@ from src.services.payment import PLANS
 logger = logging.getLogger(__name__)
 
 REFERRAL_BONUS_DAYS = 15
+
+_VLESS_UUID_RE = re.compile(r"^vless://([^@]+)@")
+
+
+def _extract_uuid_from_vless(link: str) -> str:
+    """Extract UUID from vless://UUID@... link safely."""
+    m = _VLESS_UUID_RE.match(link)
+    if not m:
+        raise ValueError(f"Cannot extract UUID from vless link: {link[:60]}")
+    return m.group(1)
 
 
 def _make_client_email(telegram_username: str | None, telegram_id: int) -> str:
@@ -64,7 +75,7 @@ async def activate_subscription(
         client_email = user.marzban_username
         link = await xui_client.get_vless_link(client_email)
         # Extract UUID from vless://UUID@...
-        client_uuid = link.split("://")[1].split("@")[0]
+        client_uuid = _extract_uuid_from_vless(link)
         await xui_client.update_client(
             client_uuid=client_uuid,
             email=client_email,
@@ -119,14 +130,16 @@ async def _give_referral_bonus(
         try:
             new_expire_ms = int(referrer.subscription_end.timestamp() * 1000)
             link = await xui_client.get_vless_link(referrer.marzban_username)
-            client_uuid = link.split("://")[1].split("@")[0]
+            client_uuid = _extract_uuid_from_vless(link)
             await xui_client.update_client(
                 client_uuid=client_uuid,
                 email=referrer.marzban_username,
                 expire_timestamp_ms=new_expire_ms,
             )
         except Exception:
-            logger.exception("Failed to update referrer 3X-UI expiry")
+            logger.exception("Failed to update referrer 3X-UI expiry — bonus not marked as given")
+            await session.commit()
+            return
 
     referrer.referral_count += 1
     user.referral_bonus_given = True
