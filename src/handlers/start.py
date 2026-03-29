@@ -8,7 +8,7 @@ from aiogram.types import CallbackQuery, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.bot.keyboards import back_to_main_kb, info_kb, main_menu_kb
+from src.bot.keyboards import back_to_main_kb, howto_back_kb, howto_platforms_kb, info_kb, main_menu_kb
 from src.models.user import User
 from src.services.subscription import get_or_create_user
 
@@ -33,17 +33,53 @@ HELP_TEXT = (
     "По всем вопросам пишите: @KzyuF"
 )
 
-HOWTO_TEXT = (
-    "📱 <b>Как подключиться к VPN</b>\n\n"
-    "<b>Android:</b> V2RayNG или Hiddify\n"
-    "<b>iOS:</b> Streisand или V2Box\n"
-    "<b>Windows/Mac:</b> Hiddify или Nekoray\n\n"
-    "<b>Инструкция:</b>\n"
-    "1. Скопируйте ссылку из раздела «Мой VPN-ключ»\n"
-    "2. Откройте приложение\n"
-    "3. Нажмите «+» (добавить)\n"
-    "4. Вставьте ссылку\n"
-    "5. Подключитесь!"
+HOWTO_CHOOSE_TEXT = "📲 <b>Как подключиться к VPN</b>\n\nВыберите вашу платформу:"
+
+HOWTO_ANDROID = (
+    "📱 <b>Подключение на Android</b>\n\n"
+    "<b>Шаг 1: Скачайте приложение</b>\n"
+    "Рекомендуем HAPP или Hiddify:\n"
+    "• <a href='https://play.google.com/store/apps/details?id=su.ffg.happ'>HAPP</a>\n"
+    "• <a href='https://play.google.com/store/apps/details?id=app.hiddify.com'>Hiddify</a>\n"
+    "• <a href='https://play.google.com/store/apps/details?id=com.v2ray.ang'>V2RayNG</a>\n\n"
+    "<b>Шаг 2: Скопируйте VPN-ключ</b>\n"
+    "Нажмите кнопку «🔑 Мой VPN-ключ» в главном меню бота. "
+    "Нажмите на ключ чтобы скопировать его.\n\n"
+    "<b>Шаг 3: Откройте приложение</b>\n"
+    "Нажмите «+» → «Импорт из буфера обмена». Ключ добавится автоматически.\n\n"
+    "<b>Шаг 4: Подключитесь</b>\n"
+    "Нажмите кнопку подключения. Готово!"
+)
+
+HOWTO_IOS = (
+    "🍎 <b>Подключение на iPhone/iPad</b>\n\n"
+    "<b>Шаг 1: Скачайте приложение</b>\n"
+    "В российском App Store доступны:\n"
+    "• <a href='https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973'>HAPP Plus</a>\n"
+    "• <a href='https://apps.apple.com/app/hiddify-proxy-vpn/id6596777532'>Hiddify</a>\n"
+    "• <a href='https://apps.apple.com/app/happ-proxy-utility/id6504287215'>HAPP</a> "
+    "(может быть недоступен в российском App Store)\n\n"
+    "⚠️ Приложения Streisand, V2Box и v2RayTun были удалены из российского "
+    "App Store. Используйте HAPP Plus.\n\n"
+    "<b>Шаг 2: Скопируйте VPN-ключ</b>\n"
+    "Нажмите «🔑 Мой VPN-ключ» в главном меню. Нажмите на ключ чтобы скопировать.\n\n"
+    "<b>Шаг 3: Откройте HAPP Plus</b>\n"
+    "Нажмите «+» в правом верхнем углу → «Из буфера обмена». Ключ добавится.\n\n"
+    "<b>Шаг 4: Подключитесь</b>\n"
+    "Выберите добавленный сервер и нажмите кнопку подключения. Готово!"
+)
+
+HOWTO_DESKTOP = (
+    "💻 <b>Подключение на Windows/Mac</b>\n\n"
+    "<b>Шаг 1: Скачайте Hiddify</b>\n"
+    "• <a href='https://hiddify.com/'>Windows/Mac/Linux — Hiddify</a>\n"
+    "• <a href='https://github.com/2dust/v2rayN/releases'>V2RayN (Windows)</a>\n\n"
+    "<b>Шаг 2: Скопируйте VPN-ключ</b>\n"
+    "Нажмите «🔑 Мой VPN-ключ» в боте. Скопируйте ключ.\n\n"
+    "<b>Шаг 3: Импортируйте ключ</b>\n"
+    "Откройте приложение → добавьте сервер из буфера обмена.\n\n"
+    "<b>Шаг 4: Подключитесь</b>\n"
+    "Выберите сервер и нажмите подключение. Готово!"
 )
 
 
@@ -112,7 +148,42 @@ async def back_to_main(callback: CallbackQuery) -> None:
 async def howto(callback: CallbackQuery) -> None:
     await callback.answer()
     await callback.message.edit_text(
-        HOWTO_TEXT, reply_markup=back_to_main_kb(), parse_mode="HTML"
+        HOWTO_CHOOSE_TEXT, reply_markup=howto_platforms_kb(), parse_mode="HTML"
+    )
+
+
+@router.callback_query(lambda c: c.data == "howto_android")
+async def howto_android(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.edit_text(
+        HOWTO_ANDROID, reply_markup=howto_back_kb(), parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+
+@router.callback_query(lambda c: c.data == "howto_ios")
+async def howto_ios(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.edit_text(
+        HOWTO_IOS, reply_markup=howto_back_kb(), parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+
+@router.callback_query(lambda c: c.data == "howto_desktop")
+async def howto_desktop(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.edit_text(
+        HOWTO_DESKTOP, reply_markup=howto_back_kb(), parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
+
+
+@router.callback_query(lambda c: c.data == "howto_back")
+async def howto_back(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.edit_text(
+        HOWTO_CHOOSE_TEXT, reply_markup=howto_platforms_kb(), parse_mode="HTML"
     )
 
 

@@ -11,7 +11,7 @@ def main_menu_kb() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🛒 Купить подписку", callback_data="buy")],
             [InlineKeyboardButton(text="🔑 Мой VPN-ключ", callback_data="my_key")],
             [InlineKeyboardButton(text="👤 Профиль", callback_data="profile")],
-            [InlineKeyboardButton(text="❓ Как подключиться", callback_data="howto")],
+            [InlineKeyboardButton(text="📲 Как подключиться", callback_data="howto")],
             [InlineKeyboardButton(text="👥 Пригласить друга", callback_data="referral")],
             [InlineKeyboardButton(text="💬 Поддержка", callback_data="support")],
             [InlineKeyboardButton(text="ℹ️ Информация", callback_data="info")],
@@ -83,6 +83,25 @@ def info_kb() -> InlineKeyboardMarkup:
                 url="https://telegra.ph/Politika-konfidencialnosti-GlowVPN-03-27",
             )],
             [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
+        ]
+    )
+
+
+def howto_platforms_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📱 Android", callback_data="howto_android")],
+            [InlineKeyboardButton(text="🍎 iPhone/iPad", callback_data="howto_ios")],
+            [InlineKeyboardButton(text="💻 Windows/Mac", callback_data="howto_desktop")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
+        ]
+    )
+
+
+def howto_back_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Назад к выбору платформы", callback_data="howto_back")],
         ]
     )
 
