@@ -1,6 +1,7 @@
 """Subscription purchase flow — Telegram Stars and Freekassa."""
 
 import hashlib
+import hmac
 import logging
 import time
 import uuid as uuid_mod
@@ -169,10 +170,7 @@ async def send_freekassa_link(callback: CallbackQuery) -> None:
     payment_id = str(uuid_mod.uuid4().hex[:16])
     amount = plan["price_rub"]
 
-    # Build signature: md5(shopId:amount:secret1:currency:paymentId)
-    sign_str = f"{settings.freekassa_shop_id}:{amount}:{settings.freekassa_secret1}:RUB:{payment_id}"
-    signature = hashlib.md5(sign_str.encode()).hexdigest()
-
+    # Build request data (without signature)
     payload = {
         "shopId": settings.freekassa_shop_id,
         "nonce": int(time.time()),
@@ -182,18 +180,23 @@ async def send_freekassa_link(callback: CallbackQuery) -> None:
         "amount": amount,
         "currency": "RUB",
         "paymentId": payment_id,
-        "signature": signature,
         "us_telegram_id": str(user_id),
         "us_plan": plan_key,
     }
 
+    # HMAC-SHA256 signature: sort keys alphabetically, join values with |
+    sorted_data = dict(sorted(payload.items()))
+    sign_string = "|".join(str(v) for v in sorted_data.values())
+    signature = hmac.new(
+        settings.freekassa_api_key.encode(),
+        sign_string.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    payload["signature"] = signature
+
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                FREEKASSA_API_URL,
-                json=payload,
-                headers={"Authorization": f"Bearer {settings.freekassa_api_key}"},
-            )
+            resp = await client.post(FREEKASSA_API_URL, json=payload)
             data = resp.json()
 
         location = data.get("location")
