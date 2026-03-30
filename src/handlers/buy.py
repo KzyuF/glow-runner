@@ -174,7 +174,6 @@ async def send_freekassa_link(callback: CallbackQuery) -> None:
     payload = {
         "shopId": settings.freekassa_shop_id,
         "nonce": int(time.time()),
-        "i": 42,
         "email": "user@glowvpn.site",
         "ip": "127.0.0.1",
         "amount": amount,
