@@ -1,9 +1,7 @@
-"""Subscription purchase flow — Telegram Stars, Freekassa, and Platega."""
+"""Subscription purchase flow — Telegram Stars and Platega."""
 
-import hashlib
 import logging
 import time
-import uuid as uuid_mod
 
 import httpx
 from aiogram import Bot, Router
@@ -21,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.bot.keyboards import (
     back_to_main_kb,
     payment_method_kb,
-    plans_card_kb,
     plans_platega_kb,
     plans_stars_kb,
 )
@@ -134,67 +131,6 @@ async def on_successful_payment(message: Message, session: AsyncSession, bot: Bo
         text = "❌ Произошла ошибка. Оплата возвращена. Попробуйте позже или обратитесь в поддержку через главное меню."
 
     await message.answer(text, reply_markup=back_to_main_kb(), parse_mode="HTML")
-
-
-# ── Freekassa (card/SBP) flow ─────────────────────────────────
-
-@router.callback_query(lambda c: c.data == "pay_card")
-async def show_card_plans(callback: CallbackQuery) -> None:
-    await callback.answer()
-    await callback.message.edit_text(
-        "💳 Выберите тариф:", reply_markup=plans_card_kb()
-    )
-
-
-@router.callback_query(lambda c: c.data and c.data.startswith("fk_plan:"))
-async def send_freekassa_link(callback: CallbackQuery) -> None:
-    parts = callback.data.split(":", 1)
-    plan_key = parts[1] if len(parts) > 1 else ""
-    plan = PLANS.get(plan_key)
-    if not plan:
-        await callback.answer("Неизвестный тариф", show_alert=True)
-        return
-
-    user_id = callback.from_user.id
-    now = time.monotonic()
-    if now - _invoice_cooldown.get(user_id, 0) < COOLDOWN_SECONDS:
-        await callback.answer("Счёт уже отправлен, подождите.", show_alert=True)
-        return
-    _invoice_cooldown[user_id] = now
-
-    await callback.answer()
-
-    payment_id = str(uuid_mod.uuid4().hex[:16])
-    amount = plan["price_rub"]
-
-    # SCI signature: md5(shop_id:amount:secret1:currency:payment_id)
-    sign_str = f"{settings.freekassa_shop_id}:{amount}:{settings.freekassa_secret1}:RUB:{payment_id}"
-    signature = hashlib.md5(sign_str.encode()).hexdigest()
-
-    url = (
-        f"https://pay.fk.money/"
-        f"?m={settings.freekassa_shop_id}"
-        f"&oa={amount}"
-        f"&currency=RUB"
-        f"&o={payment_id}"
-        f"&s={signature}"
-        f"&us_telegram_id={user_id}"
-        f"&us_plan={plan_key}"
-        f"&lang=ru"
-    )
-
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Перейти к оплате", url=url)],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy")],
-        ]
-    )
-    await callback.message.edit_text(
-        f"💳 Оплата тарифа: {plan['label']}\n"
-        f"Сумма: {amount} ₽\n\n"
-        f"Нажмите кнопку ниже для перехода к оплате:",
-        reply_markup=kb,
-    )
 
 
 # ── Platega (card/SBP) flow ──────────────────────────────────

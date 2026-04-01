@@ -1,4 +1,4 @@
-"""Telegram Stars and Freekassa payment processing."""
+"""Telegram Stars and Platega payment processing."""
 
 PLANS = {
     "1month": {
