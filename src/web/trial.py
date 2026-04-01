@@ -195,6 +195,79 @@ async def handle_freekassa(request: web.Request) -> web.Response:
     return web.Response(text="YES")
 
 
+# ── Platega callback ──────────────────────────────────────────
+
+async def handle_platega(request: web.Request) -> web.Response:
+    # Verify merchant credentials from headers
+    merchant_id = request.headers.get("X-MerchantId", "")
+    secret = request.headers.get("X-Secret", "")
+
+    if merchant_id != settings.platega_merchant_id or secret != settings.platega_secret:
+        logger.warning("Platega callback: invalid credentials")
+        return web.Response(text="DENIED", status=403)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.Response(text="INVALID JSON", status=400)
+
+    status = data.get("status", "")
+    payload = data.get("payload", "")
+    transaction_id = data.get("id", "")
+
+    logger.info(f"Platega callback: id={transaction_id}, status={status}, payload={payload}")
+
+    if status != "CONFIRMED":
+        return web.Response(text="OK", status=200)
+
+    # Parse payload: "telegram_id:plan_key"
+    parts = payload.split(":", 1)
+    if len(parts) != 2:
+        logger.warning(f"Platega callback: invalid payload format: {payload}")
+        return web.Response(text="INVALID PAYLOAD", status=400)
+
+    telegram_id_str, plan_key = parts
+
+    try:
+        telegram_id = int(telegram_id_str)
+    except (ValueError, TypeError):
+        logger.warning(f"Platega callback: invalid telegram_id: {telegram_id_str}")
+        return web.Response(text="INVALID TELEGRAM_ID", status=400)
+
+    if plan_key not in PLANS:
+        logger.warning(f"Platega callback: unknown plan {plan_key}")
+        return web.Response(text="UNKNOWN PLAN", status=400)
+
+    bot = request.app.get("bot")
+    if bot is None:
+        logger.error("Platega callback: bot not available in app")
+        return web.Response(text="BOT UNAVAILABLE", status=500)
+
+    try:
+        async with async_session() as session:
+            user = await get_or_create_user(session, telegram_id, username=None)
+            await activate_subscription(session, user, plan_key, bot=bot)
+
+        await bot.send_message(
+            telegram_id,
+            "✅ Оплата прошла! Ваша подписка активирована.\n"
+            "Нажмите «🔑 Мой VPN-ключ» чтобы получить ключ.",
+        )
+        logger.info(f"Platega payment processed: tg={telegram_id}, plan={plan_key}")
+    except Exception:
+        logger.exception(f"Platega callback: activation failed for tg={telegram_id}")
+        try:
+            await bot.send_message(
+                telegram_id,
+                "❌ Оплата получена, но произошла ошибка активации. "
+                "Обратитесь в поддержку через главное меню.",
+            )
+        except Exception:
+            pass
+
+    return web.Response(text="OK", status=200)
+
+
 # ── App setup ──────────────────────────────────────────────────
 
 def create_app(bot=None) -> web.Application:
@@ -204,6 +277,7 @@ def create_app(bot=None) -> web.Application:
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/trial", handle_trial)
     app.router.add_post("/api/freekassa/notification", handle_freekassa)
+    app.router.add_post("/api/platega/callback", handle_platega)
 
     from src.web.admin import register_admin_routes
     register_admin_routes(app)

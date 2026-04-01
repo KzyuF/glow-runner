@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     freekassa_secret1: str = ""
     freekassa_secret2: str = ""
     freekassa_api_key: str = ""
+    platega_merchant_id: str = ""
+    platega_secret: str = ""
     admin_panel_password: str = "glowadmin2026"
 
     class Config:

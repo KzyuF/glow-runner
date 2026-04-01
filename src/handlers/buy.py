@@ -1,10 +1,11 @@
-"""Subscription purchase flow — Telegram Stars and Freekassa."""
+"""Subscription purchase flow — Telegram Stars, Freekassa, and Platega."""
 
 import hashlib
 import logging
 import time
 import uuid as uuid_mod
 
+import httpx
 from aiogram import Bot, Router
 from aiogram.types import (
     CallbackQuery,
@@ -21,6 +22,7 @@ from src.bot.keyboards import (
     back_to_main_kb,
     payment_method_kb,
     plans_card_kb,
+    plans_platega_kb,
     plans_stars_kb,
 )
 from src.services.payment import PLANS
@@ -193,3 +195,86 @@ async def send_freekassa_link(callback: CallbackQuery) -> None:
         f"Нажмите кнопку ниже для перехода к оплате:",
         reply_markup=kb,
     )
+
+
+# ── Platega (card/SBP) flow ──────────────────────────────────
+
+PLATEGA_API_URL = "https://app.platega.io/transaction/process"
+
+
+@router.callback_query(lambda c: c.data == "pay_platega")
+async def show_platega_plans(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.edit_text(
+        "💳 Выберите тариф:", reply_markup=plans_platega_kb()
+    )
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("platega_plan:"))
+async def send_platega_link(callback: CallbackQuery) -> None:
+    parts = callback.data.split(":", 1)
+    plan_key = parts[1] if len(parts) > 1 else ""
+    plan = PLANS.get(plan_key)
+    if not plan:
+        await callback.answer("Неизвестный тариф", show_alert=True)
+        return
+
+    user_id = callback.from_user.id
+    now = time.monotonic()
+    if now - _invoice_cooldown.get(user_id, 0) < COOLDOWN_SECONDS:
+        await callback.answer("Счёт уже отправлен, подождите.", show_alert=True)
+        return
+    _invoice_cooldown[user_id] = now
+
+    await callback.answer()
+
+    amount = plan["price_rub"]
+    payload_str = f"{user_id}:{plan_key}"
+
+    body = {
+        "paymentMethod": 2,
+        "paymentDetails": {"amount": amount, "currency": "RUB"},
+        "description": f"GlowVPN подписка {plan['label']}",
+        "return": "https://glowbestvpn.site/payment/success",
+        "failedUrl": "https://glowbestvpn.site/payment/fail",
+        "payload": payload_str,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                PLATEGA_API_URL,
+                json=body,
+                headers={
+                    "X-MerchantId": settings.platega_merchant_id,
+                    "X-Secret": settings.platega_secret,
+                },
+            )
+            data = resp.json()
+
+        redirect_url = data.get("redirect")
+        if not redirect_url:
+            raise ValueError(f"No redirect in Platega response: {data}")
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Перейти к оплате", url=redirect_url)],
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy")],
+            ]
+        )
+        await callback.message.edit_text(
+            f"💳 Оплата тарифа: {plan['label']}\n"
+            f"Сумма: {amount} ₽\n\n"
+            f"Нажмите кнопку ниже для перехода к оплате:",
+            reply_markup=kb,
+        )
+    except Exception as e:
+        logger.error(f"Failed to create Platega transaction: {e}")
+        _invoice_cooldown.pop(user_id, None)
+        try:
+            await callback.message.edit_text(
+                "⚠️ Не удалось создать платёж. Попробуйте позже." + SUPPORT_NOTE,
+                reply_markup=back_to_main_kb(),
+            )
+        except Exception:
+            pass
