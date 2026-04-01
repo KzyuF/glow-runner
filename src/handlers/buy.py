@@ -18,9 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot.keyboards import (
     back_to_main_kb,
-    payment_method_kb,
-    plans_platega_kb,
-    plans_stars_kb,
+    payment_methods_kb,
+    plans_kb,
 )
 from src.services.payment import PLANS
 from src.services.subscription import activate_subscription, get_or_create_user
@@ -36,25 +35,35 @@ _invoice_cooldown: dict[int, float] = {}
 COOLDOWN_SECONDS = 5.0
 
 
-# ── Step 1: choose payment method ──────────────────────────────
+# ── Step 1: choose plan ───────────────────────────────────────
 
 @router.callback_query(lambda c: c.data == "buy")
-async def show_payment_methods(callback: CallbackQuery) -> None:
+async def show_plans(callback: CallbackQuery) -> None:
     await callback.answer()
     await callback.message.edit_text(
-        "🛒 Выберите способ оплаты:", reply_markup=payment_method_kb()
+        "🛒 Выберите тариф:", reply_markup=plans_kb()
+    )
+
+
+# ── Step 2: choose payment method ─────────────────────────────
+
+@router.callback_query(lambda c: c.data and c.data.startswith("choose_plan:"))
+async def show_payment_methods(callback: CallbackQuery) -> None:
+    parts = callback.data.split(":", 1)
+    plan_key = parts[1] if len(parts) > 1 else ""
+    plan = PLANS.get(plan_key)
+    if not plan:
+        await callback.answer("Неизвестный тариф", show_alert=True)
+        return
+
+    await callback.answer()
+    await callback.message.edit_text(
+        f"🛒 Тариф: {plan['label']}\n\nВыберите способ оплаты:",
+        reply_markup=payment_methods_kb(plan_key),
     )
 
 
 # ── Stars flow ─────────────────────────────────────────────────
-
-@router.callback_query(lambda c: c.data == "pay_stars")
-async def show_stars_plans(callback: CallbackQuery) -> None:
-    await callback.answer()
-    await callback.message.edit_text(
-        "⭐ Выберите тариф:", reply_markup=plans_stars_kb()
-    )
-
 
 @router.callback_query(lambda c: c.data and c.data.startswith("plan:"))
 async def send_invoice(callback: CallbackQuery, bot: Bot) -> None:
@@ -138,21 +147,23 @@ async def on_successful_payment(message: Message, session: AsyncSession, bot: Bo
 PLATEGA_API_URL = "https://app.platega.io/transaction/process"
 
 
-@router.callback_query(lambda c: c.data == "pay_platega")
-async def show_platega_plans(callback: CallbackQuery) -> None:
-    await callback.answer()
-    await callback.message.edit_text(
-        "💳 Выберите тариф:", reply_markup=plans_platega_kb()
-    )
-
-
-@router.callback_query(lambda c: c.data and c.data.startswith("platega_plan:"))
+@router.callback_query(lambda c: c.data and c.data.startswith("platega_method:"))
 async def send_platega_link(callback: CallbackQuery) -> None:
-    parts = callback.data.split(":", 1)
-    plan_key = parts[1] if len(parts) > 1 else ""
+    parts = callback.data.split(":")
+    if len(parts) != 3:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+
+    _, plan_key, method_str = parts
     plan = PLANS.get(plan_key)
     if not plan:
         await callback.answer("Неизвестный тариф", show_alert=True)
+        return
+
+    try:
+        payment_method = int(method_str)
+    except (ValueError, TypeError):
+        await callback.answer("Ошибка", show_alert=True)
         return
 
     user_id = callback.from_user.id
@@ -168,6 +179,7 @@ async def send_platega_link(callback: CallbackQuery) -> None:
     payload_str = f"{user_id}:{plan_key}"
 
     body = {
+        "paymentMethod": payment_method,
         "paymentDetails": {"amount": amount, "currency": "RUB"},
         "description": f"GlowVPN подписка {plan['label']}",
         "return": "https://glowbestvpn.site/payment/success",
@@ -175,26 +187,21 @@ async def send_platega_link(callback: CallbackQuery) -> None:
         "payload": payload_str,
     }
 
-    headers = {
-        "X-MerchantId": settings.platega_merchant_id,
-        "X-Secret": settings.platega_secret,
-    }
-
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(PLATEGA_API_URL, json=body, headers=headers)
+            resp = await client.post(
+                PLATEGA_API_URL,
+                json=body,
+                headers={
+                    "X-MerchantId": settings.platega_merchant_id,
+                    "X-Secret": settings.platega_secret,
+                },
+            )
             data = resp.json()
 
-            redirect_url = data.get("redirect")
-            if not redirect_url:
-                # Fallback: retry with paymentMethod=2 (SBP)
-                body["paymentMethod"] = 2
-                resp = await client.post(PLATEGA_API_URL, json=body, headers=headers)
-                data = resp.json()
-                redirect_url = data.get("redirect")
-
-            if not redirect_url:
-                raise ValueError(f"No redirect in Platega response: {data}")
+        redirect_url = data.get("redirect")
+        if not redirect_url:
+            raise ValueError(f"No redirect in Platega response: {data}")
 
         kb = InlineKeyboardMarkup(
             inline_keyboard=[

@@ -19,48 +19,37 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     )
 
 
-def payment_method_kb() -> InlineKeyboardMarkup:
+def plans_kb() -> InlineKeyboardMarkup:
+    buttons = []
+    for key, plan in PLANS.items():
+        buttons.append(
+            [InlineKeyboardButton(text=plan["label"], callback_data=f"choose_plan:{key}")]
+        )
+    buttons.append(
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def payment_methods_kb(plan_key: str) -> InlineKeyboardMarkup:
+    plan = PLANS[plan_key]
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="⭐ Telegram Stars", callback_data="pay_stars")],
-            [InlineKeyboardButton(text="💳 Картой/СБП", callback_data="pay_platega")],
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_main")],
+            [InlineKeyboardButton(
+                text=f"⭐ Telegram Stars — {plan['price_stars']} ⭐",
+                callback_data=f"plan:{plan_key}",
+            )],
+            [InlineKeyboardButton(
+                text=f"🏦 СБП — {plan['price_rub']} ₽",
+                callback_data=f"platega_method:{plan_key}:2",
+            )],
+            [InlineKeyboardButton(
+                text=f"💳 Карта — {plan['price_rub']} ₽",
+                callback_data=f"platega_method:{plan_key}:11",
+            )],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy")],
         ]
     )
-
-
-def plans_stars_kb() -> InlineKeyboardMarkup:
-    buttons = []
-    for key, plan in PLANS.items():
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=f"{plan['label']} — {plan['price_stars']} ⭐",
-                    callback_data=f"plan:{key}",
-                )
-            ]
-        )
-    buttons.append(
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy")]
-    )
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-def plans_platega_kb() -> InlineKeyboardMarkup:
-    buttons = []
-    for key, plan in PLANS.items():
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=f"{plan['label']} — {plan['price_rub']} ₽",
-                    callback_data=f"platega_plan:{key}",
-                )
-            ]
-        )
-    buttons.append(
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy")]
-    )
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def back_to_main_kb() -> InlineKeyboardMarkup:
