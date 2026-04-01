@@ -2,8 +2,10 @@
 
 import logging
 import time
+import uuid as uuid_mod
 
 import aiosqlite
+import httpx
 from aiohttp import web
 
 from src.models.database import async_session
@@ -112,6 +114,73 @@ async def handle_trial(request: web.Request) -> web.Response:
     return web.json_response({"key": link, "expires_in": "6 часов"})
 
 
+# ── Web payment (Platega) ─────────────────────────────────────
+
+PLATEGA_API_URL = "https://app.platega.io/transaction/process"
+
+
+async def handle_pay(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    plan_key = data.get("plan", "")
+    method = data.get("method")
+
+    plan = PLANS.get(plan_key)
+    if not plan:
+        return web.json_response({"error": "Неизвестный тариф"}, status=400)
+
+    if method is None:
+        return web.json_response({"error": "Не указан способ оплаты"}, status=400)
+
+    try:
+        payment_method = int(method)
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Некорректный способ оплаты"}, status=400)
+
+    transaction_id = uuid_mod.uuid4().hex[:16]
+    amount = plan["price_rub"]
+
+    body = {
+        "paymentMethod": payment_method,
+        "paymentDetails": {"amount": amount, "currency": "RUB"},
+        "description": f"GlowVPN подписка {plan['label']}",
+        "return": "https://glowbestvpn.site/payment/success",
+        "failedUrl": "https://glowbestvpn.site/payment/fail",
+        "payload": f"web:{transaction_id}",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                PLATEGA_API_URL,
+                json=body,
+                headers={
+                    "X-MerchantId": settings.platega_merchant_id,
+                    "X-Secret": settings.platega_secret,
+                },
+            )
+            result = resp.json()
+
+        redirect_url = result.get("redirect")
+        if not redirect_url:
+            logger.error(f"Platega /api/pay: no redirect in response: {result}")
+            return web.json_response(
+                {"error": "Не удалось создать платёж. Попробуйте позже."},
+                status=502,
+            )
+
+        return web.json_response({"redirect": redirect_url})
+    except Exception:
+        logger.exception("Failed to create Platega transaction from web")
+        return web.json_response(
+            {"error": "Сервис оплаты временно недоступен."},
+            status=503,
+        )
+
+
 # ── Platega callback ──────────────────────────────────────────
 
 async def handle_platega(request: web.Request) -> web.Response:
@@ -193,6 +262,7 @@ def create_app(bot=None) -> web.Application:
         app["bot"] = bot
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/trial", handle_trial)
+    app.router.add_post("/api/pay", handle_pay)
     app.router.add_post("/api/platega/callback", handle_platega)
 
     from src.web.admin import register_admin_routes
