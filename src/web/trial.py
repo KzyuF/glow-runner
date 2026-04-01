@@ -1,30 +1,28 @@
-"""HTTP server for free trial VPN keys and Freekassa webhooks."""
+"""HTTP server for free trial VPN keys, web payments, and Platega callbacks."""
 
-import hashlib
 import logging
 import time
+import uuid as uuid_mod
+from datetime import datetime, timedelta
 
 import aiosqlite
+import httpx
 from aiohttp import web
 
 from src.models.database import async_session
+from src.models.user import User
 from src.services.payment import PLANS
 from src.services.subscription import activate_subscription, get_or_create_user
 from src.services.xui_client import xui_client
 from src.utils.config import settings
+
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
 DB_PATH = "data/trials.db"
 TRIAL_HOURS = 6
 COOLDOWN_SECONDS = 24 * 3600  # 24 hours
-
-FREEKASSA_IPS = {
-    "168.119.157.136",
-    "168.119.60.227",
-    "178.154.197.79",
-    "51.250.54.238",
-}
 
 
 async def _init_db() -> None:
@@ -34,6 +32,17 @@ async def _init_db() -> None:
             "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
             "  ip TEXT NOT NULL,"
             "  email TEXT NOT NULL,"
+            "  created_at INTEGER NOT NULL"
+            ")"
+        )
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS web_orders ("
+            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  order_id TEXT UNIQUE NOT NULL,"
+            "  telegram_username TEXT NOT NULL,"
+            "  plan_key TEXT NOT NULL,"
+            "  status TEXT NOT NULL DEFAULT 'pending',"
+            "  vless_key TEXT NOT NULL DEFAULT '',"
             "  created_at INTEGER NOT NULL"
             ")"
         )
@@ -121,78 +130,269 @@ async def handle_trial(request: web.Request) -> web.Response:
     return web.json_response({"key": link, "expires_in": "6 часов"})
 
 
-# ── Freekassa webhook ──────────────────────────────────────────
+# ── Web payment (Platega) ─────────────────────────────────────
 
-async def handle_freekassa(request: web.Request) -> web.Response:
-    # Verify IP
-    sender_ip = _get_client_ip(request)
-    if sender_ip not in FREEKASSA_IPS:
-        logger.warning(f"Freekassa webhook from unknown IP: {sender_ip}")
+PLATEGA_API_URL = "https://app.platega.io/transaction/process"
+
+
+async def handle_pay(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    plan_key = data.get("plan", "")
+    method = data.get("method")
+    telegram_username = (data.get("telegram_username") or "").strip()
+
+    plan = PLANS.get(plan_key)
+    if not plan:
+        return web.json_response({"error": "Неизвестный тариф"}, status=400)
+
+    if method is None:
+        return web.json_response({"error": "Не указан способ оплаты"}, status=400)
+
+    if not telegram_username:
+        return web.json_response({"error": "Не указан Telegram username"}, status=400)
+
+    try:
+        payment_method = int(method)
+    except (ValueError, TypeError):
+        return web.json_response({"error": "Некорректный способ оплаты"}, status=400)
+
+    order_id = uuid_mod.uuid4().hex[:16]
+    amount = plan["price_rub"]
+
+    # Save order to DB
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO web_orders (order_id, telegram_username, plan_key, status, vless_key, created_at) "
+            "VALUES (?, ?, ?, 'pending', '', ?)",
+            (order_id, telegram_username, plan_key, int(time.time())),
+        )
+        await db.commit()
+
+    body = {
+        "paymentMethod": payment_method,
+        "paymentDetails": {"amount": amount, "currency": "RUB"},
+        "description": f"GlowVPN подписка {plan['label']}",
+        "return": f"https://glowbestvpn.site/payment/success?order={order_id}",
+        "failedUrl": "https://glowbestvpn.site/payment/fail",
+        "payload": f"web:{order_id}",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                PLATEGA_API_URL,
+                json=body,
+                headers={
+                    "X-MerchantId": settings.platega_merchant_id,
+                    "X-Secret": settings.platega_secret,
+                },
+            )
+            result = resp.json()
+
+        redirect_url = result.get("redirect")
+        if not redirect_url:
+            logger.error(f"Platega /api/pay: no redirect in response: {result}")
+            return web.json_response(
+                {"error": "Не удалось создать платёж. Попробуйте позже."},
+                status=502,
+            )
+
+        return web.json_response({"redirect": redirect_url})
+    except Exception:
+        logger.exception("Failed to create Platega transaction from web")
+        return web.json_response(
+            {"error": "Сервис оплаты временно недоступен."},
+            status=503,
+        )
+
+
+# ── Order status ─────────────────────────────────────────────
+
+async def handle_order(request: web.Request) -> web.Response:
+    order_id = request.match_info.get("order_id", "")
+    if not order_id:
+        return web.json_response({"error": "Missing order_id"}, status=400)
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT status, vless_key FROM web_orders WHERE order_id = ?",
+            (order_id,),
+        )
+        row = await cursor.fetchone()
+
+    if not row:
+        return web.json_response({"error": "Заказ не найден"}, status=404)
+
+    return web.json_response({
+        "status": row["status"],
+        "key": row["vless_key"] if row["status"] == "paid" else None,
+    })
+
+
+# ── Platega callback ──────────────────────────────────────────
+
+async def handle_platega(request: web.Request) -> web.Response:
+    # Verify merchant credentials from headers
+    merchant_id = request.headers.get("X-MerchantId", "")
+    secret = request.headers.get("X-Secret", "")
+
+    if merchant_id != settings.platega_merchant_id or secret != settings.platega_secret:
+        logger.warning("Platega callback: invalid credentials")
         return web.Response(text="DENIED", status=403)
 
-    data = await request.post()
+    try:
+        data = await request.json()
+    except Exception:
+        return web.Response(text="INVALID JSON", status=400)
 
-    merchant_id = data.get("MERCHANT_ID", "")
-    amount = data.get("AMOUNT", "")
-    order_id = data.get("MERCHANT_ORDER_ID", "")
-    received_sign = data.get("SIGN", "")
+    status = data.get("status", "")
+    payload = data.get("payload", "")
+    transaction_id = data.get("id", "")
 
-    # Verify signature: md5(MERCHANT_ID:AMOUNT:SECRET2:MERCHANT_ORDER_ID)
-    sign_str = f"{merchant_id}:{amount}:{settings.freekassa_secret2}:{order_id}"
-    expected_sign = hashlib.md5(sign_str.encode()).hexdigest()
+    logger.info(f"Platega callback: id={transaction_id}, status={status}, payload={payload}")
 
-    if received_sign != expected_sign:
-        logger.warning("Freekassa webhook: invalid signature")
-        return web.Response(text="INVALID SIGN", status=400)
+    if status != "CONFIRMED":
+        return web.Response(text="OK", status=200)
 
-    telegram_id_str = data.get("us_telegram_id", "")
-    plan_key = data.get("us_plan", "")
+    # Route based on payload prefix
+    parts = payload.split(":", 1)
+    if len(parts) != 2:
+        logger.warning(f"Platega callback: invalid payload format: {payload}")
+        return web.Response(text="INVALID PAYLOAD", status=400)
 
-    if not telegram_id_str or not plan_key:
-        logger.warning("Freekassa webhook: missing us_telegram_id or us_plan")
-        return web.Response(text="MISSING PARAMS", status=400)
+    prefix, value = parts
+
+    if prefix == "web":
+        return await _handle_web_payment(value, request)
+    else:
+        return await _handle_bot_payment(prefix, value, request)
+
+
+async def _handle_web_payment(order_id: str, request: web.Request) -> web.Response:
+    """Handle confirmed payment from website (payload=web:{order_id})."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT order_id, telegram_username, plan_key, status FROM web_orders WHERE order_id = ?",
+            (order_id,),
+        )
+        order = await cursor.fetchone()
+
+    if not order:
+        logger.warning(f"Platega web callback: order not found: {order_id}")
+        return web.Response(text="ORDER NOT FOUND", status=400)
+
+    if order["status"] == "paid":
+        logger.info(f"Platega web callback: order already paid: {order_id}")
+        return web.Response(text="OK", status=200)
+
+    plan_key = order["plan_key"]
+    telegram_username = order["telegram_username"]
 
     if plan_key not in PLANS:
-        logger.warning(f"Freekassa webhook: unknown plan {plan_key}")
+        logger.warning(f"Platega web callback: unknown plan {plan_key}")
         return web.Response(text="UNKNOWN PLAN", status=400)
 
+    plan = PLANS[plan_key]
+    now = datetime.utcnow()
+    new_end = now + timedelta(days=plan["days"])
+    expire_ts_ms = int(new_end.timestamp() * 1000)
+
+    # Clean username (remove @)
+    clean_username = telegram_username.lstrip("@")
+
+    try:
+        # Create VPN client in 3X-UI
+        await xui_client.create_client(
+            email=clean_username,
+            expire_timestamp_ms=expire_ts_ms,
+            limit_ip=3,
+        )
+        vless_key = await xui_client.get_vless_link(clean_username)
+    except Exception:
+        logger.exception(f"Platega web callback: failed to create 3X-UI client for {clean_username}")
+        return web.Response(text="3XUI ERROR", status=500)
+
+    # Update order in web_orders
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE web_orders SET status = 'paid', vless_key = ? WHERE order_id = ?",
+            (vless_key, order_id),
+        )
+        await db.commit()
+
+    # Create/update user in main users table
+    try:
+        async with async_session() as session:
+            # Look up by username first
+            result = await session.execute(
+                select(User).where(User.username == clean_username)
+            )
+            user = result.scalar_one_or_none()
+
+            if user is None:
+                # Create user with telegram_id=0 (will be updated when they use the bot)
+                user = User(telegram_id=0, username=clean_username)
+                session.add(user)
+
+            user.marzban_username = clean_username
+            user.subscription_end = new_end
+            user.data_limit_gb = 0
+            user.is_active = True
+            user.notifications_sent = ""
+            await session.commit()
+    except Exception:
+        logger.exception(f"Platega web callback: failed to update user DB for {clean_username}")
+
+    logger.info(f"Web payment processed: order={order_id}, user={clean_username}, plan={plan_key}")
+    return web.Response(text="OK", status=200)
+
+
+async def _handle_bot_payment(telegram_id_str: str, plan_key: str, request: web.Request) -> web.Response:
+    """Handle confirmed payment from bot (payload=telegram_id:plan_key)."""
     try:
         telegram_id = int(telegram_id_str)
     except (ValueError, TypeError):
-        logger.warning(f"Freekassa webhook: invalid telegram_id: {telegram_id_str}")
+        logger.warning(f"Platega callback: invalid telegram_id: {telegram_id_str}")
         return web.Response(text="INVALID TELEGRAM_ID", status=400)
+
+    if plan_key not in PLANS:
+        logger.warning(f"Platega callback: unknown plan {plan_key}")
+        return web.Response(text="UNKNOWN PLAN", status=400)
 
     bot = request.app.get("bot")
     if bot is None:
-        logger.error("Freekassa webhook: bot not available in app")
+        logger.error("Platega callback: bot not available in app")
         return web.Response(text="BOT UNAVAILABLE", status=500)
 
     try:
         async with async_session() as session:
             user = await get_or_create_user(session, telegram_id, username=None)
-            link = await activate_subscription(session, user, plan_key, bot=bot)
+            await activate_subscription(session, user, plan_key, bot=bot)
 
-        plan = PLANS[plan_key]
-        text = (
-            f"✅ Оплата картой прошла успешно!\n\n"
-            f"Тариф: {plan['label']}\n"
-            f"Ваша ссылка для подключения:\n"
-            f"<code>{link}</code>\n\n"
-            f"Скопируйте ссылку и откройте в VPN-приложении."
+        await bot.send_message(
+            telegram_id,
+            "✅ Оплата прошла! Ваша подписка активирована.\n"
+            "Нажмите «🔑 Мой VPN-ключ» чтобы получить ключ.",
         )
-        await bot.send_message(telegram_id, text, parse_mode="HTML")
-        logger.info(f"Freekassa payment processed: tg={telegram_id}, plan={plan_key}")
+        logger.info(f"Platega payment processed: tg={telegram_id}, plan={plan_key}")
     except Exception:
-        logger.exception(f"Freekassa webhook: activation failed for tg={telegram_id}")
+        logger.exception(f"Platega callback: activation failed for tg={telegram_id}")
         try:
             await bot.send_message(
                 telegram_id,
-                "❌ Оплата получена, но произошла ошибка активации. Напишите @KzyuF",
+                "❌ Оплата получена, но произошла ошибка активации. "
+                "Обратитесь в поддержку через главное меню.",
             )
         except Exception:
             pass
 
-    return web.Response(text="YES")
+    return web.Response(text="OK", status=200)
 
 
 # ── App setup ──────────────────────────────────────────────────
@@ -203,7 +403,9 @@ def create_app(bot=None) -> web.Application:
         app["bot"] = bot
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/trial", handle_trial)
-    app.router.add_post("/api/freekassa/notification", handle_freekassa)
+    app.router.add_post("/api/pay", handle_pay)
+    app.router.add_get("/api/order/{order_id}", handle_order)
+    app.router.add_post("/api/platega/callback", handle_platega)
 
     from src.web.admin import register_admin_routes
     register_admin_routes(app)

@@ -44,6 +44,16 @@ async def get_or_create_user(
     )
     user = result.scalar_one_or_none()
     if user is None:
+        # Check if a user with this username was created via the website (telegram_id=0)
+        if username:
+            result2 = await session.execute(
+                select(User).where(User.username == username, User.telegram_id == 0)
+            )
+            user = result2.scalar_one_or_none()
+            if user is not None:
+                user.telegram_id = telegram_id
+                await session.commit()
+                return user
         user = User(telegram_id=telegram_id, username=username)
         session.add(user)
         await session.commit()
