@@ -147,12 +147,49 @@ async def show_platega_plans(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(lambda c: c.data and c.data.startswith("platega_plan:"))
-async def send_platega_link(callback: CallbackQuery) -> None:
+async def show_platega_methods(callback: CallbackQuery) -> None:
     parts = callback.data.split(":", 1)
     plan_key = parts[1] if len(parts) > 1 else ""
     plan = PLANS.get(plan_key)
     if not plan:
         await callback.answer("Неизвестный тариф", show_alert=True)
+        return
+
+    await callback.answer()
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🏦 СБП", callback_data=f"platega_method:{plan_key}:2")],
+            [InlineKeyboardButton(text="💳 Карта", callback_data=f"platega_method:{plan_key}:6")],
+            [InlineKeyboardButton(text="₿ Криптовалюта", callback_data=f"platega_method:{plan_key}:1")],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="pay_platega")],
+        ]
+    )
+    await callback.message.edit_text(
+        f"💳 Тариф: {plan['label']}\n"
+        f"Сумма: {plan['price_rub']} ₽\n\n"
+        f"Выберите способ оплаты:",
+        reply_markup=kb,
+    )
+
+
+@router.callback_query(lambda c: c.data and c.data.startswith("platega_method:"))
+async def send_platega_link(callback: CallbackQuery) -> None:
+    parts = callback.data.split(":")
+    if len(parts) != 3:
+        await callback.answer("Ошибка", show_alert=True)
+        return
+
+    _, plan_key, method_str = parts
+    plan = PLANS.get(plan_key)
+    if not plan:
+        await callback.answer("Неизвестный тариф", show_alert=True)
+        return
+
+    try:
+        payment_method = int(method_str)
+    except (ValueError, TypeError):
+        await callback.answer("Ошибка", show_alert=True)
         return
 
     user_id = callback.from_user.id
@@ -168,7 +205,7 @@ async def send_platega_link(callback: CallbackQuery) -> None:
     payload_str = f"{user_id}:{plan_key}"
 
     body = {
-        "paymentMethod": 2,
+        "paymentMethod": payment_method,
         "paymentDetails": {"amount": amount, "currency": "RUB"},
         "description": f"GlowVPN подписка {plan['label']}",
         "return": "https://glowbestvpn.site/payment/success",
