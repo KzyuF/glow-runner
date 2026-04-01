@@ -1,24 +1,29 @@
-"""HTTP server for free trial VPN keys and Platega callbacks."""
+"""HTTP server for free trial VPN keys, web payments, and Platega callbacks."""
 
 import logging
 import time
 import uuid as uuid_mod
+from datetime import datetime, timedelta
 
 import aiosqlite
 import httpx
 from aiohttp import web
 
 from src.models.database import async_session
+from src.models.user import User
 from src.services.payment import PLANS
 from src.services.subscription import activate_subscription, get_or_create_user
 from src.services.xui_client import xui_client
 from src.utils.config import settings
+
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
 DB_PATH = "data/trials.db"
 TRIAL_HOURS = 6
 COOLDOWN_SECONDS = 24 * 3600  # 24 hours
+
 
 async def _init_db() -> None:
     async with aiosqlite.connect(DB_PATH) as db:
@@ -27,6 +32,17 @@ async def _init_db() -> None:
             "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
             "  ip TEXT NOT NULL,"
             "  email TEXT NOT NULL,"
+            "  created_at INTEGER NOT NULL"
+            ")"
+        )
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS web_orders ("
+            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  order_id TEXT UNIQUE NOT NULL,"
+            "  telegram_username TEXT NOT NULL,"
+            "  plan_key TEXT NOT NULL,"
+            "  status TEXT NOT NULL DEFAULT 'pending',"
+            "  vless_key TEXT NOT NULL DEFAULT '',"
             "  created_at INTEGER NOT NULL"
             ")"
         )
@@ -127,6 +143,7 @@ async def handle_pay(request: web.Request) -> web.Response:
 
     plan_key = data.get("plan", "")
     method = data.get("method")
+    telegram_username = (data.get("telegram_username") or "").strip()
 
     plan = PLANS.get(plan_key)
     if not plan:
@@ -135,21 +152,33 @@ async def handle_pay(request: web.Request) -> web.Response:
     if method is None:
         return web.json_response({"error": "Не указан способ оплаты"}, status=400)
 
+    if not telegram_username:
+        return web.json_response({"error": "Не указан Telegram username"}, status=400)
+
     try:
         payment_method = int(method)
     except (ValueError, TypeError):
         return web.json_response({"error": "Некорректный способ оплаты"}, status=400)
 
-    transaction_id = uuid_mod.uuid4().hex[:16]
+    order_id = uuid_mod.uuid4().hex[:16]
     amount = plan["price_rub"]
+
+    # Save order to DB
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO web_orders (order_id, telegram_username, plan_key, status, vless_key, created_at) "
+            "VALUES (?, ?, ?, 'pending', '', ?)",
+            (order_id, telegram_username, plan_key, int(time.time())),
+        )
+        await db.commit()
 
     body = {
         "paymentMethod": payment_method,
         "paymentDetails": {"amount": amount, "currency": "RUB"},
         "description": f"GlowVPN подписка {plan['label']}",
-        "return": "https://glowbestvpn.site/payment/success",
+        "return": f"https://glowbestvpn.site/payment/success?order={order_id}",
         "failedUrl": "https://glowbestvpn.site/payment/fail",
-        "payload": f"web:{transaction_id}",
+        "payload": f"web:{order_id}",
     }
 
     try:
@@ -181,6 +210,30 @@ async def handle_pay(request: web.Request) -> web.Response:
         )
 
 
+# ── Order status ─────────────────────────────────────────────
+
+async def handle_order(request: web.Request) -> web.Response:
+    order_id = request.match_info.get("order_id", "")
+    if not order_id:
+        return web.json_response({"error": "Missing order_id"}, status=400)
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT status, vless_key FROM web_orders WHERE order_id = ?",
+            (order_id,),
+        )
+        row = await cursor.fetchone()
+
+    if not row:
+        return web.json_response({"error": "Заказ не найден"}, status=404)
+
+    return web.json_response({
+        "status": row["status"],
+        "key": row["vless_key"] if row["status"] == "paid" else None,
+    })
+
+
 # ── Platega callback ──────────────────────────────────────────
 
 async def handle_platega(request: web.Request) -> web.Response:
@@ -206,14 +259,102 @@ async def handle_platega(request: web.Request) -> web.Response:
     if status != "CONFIRMED":
         return web.Response(text="OK", status=200)
 
-    # Parse payload: "telegram_id:plan_key"
+    # Route based on payload prefix
     parts = payload.split(":", 1)
     if len(parts) != 2:
         logger.warning(f"Platega callback: invalid payload format: {payload}")
         return web.Response(text="INVALID PAYLOAD", status=400)
 
-    telegram_id_str, plan_key = parts
+    prefix, value = parts
 
+    if prefix == "web":
+        return await _handle_web_payment(value, request)
+    else:
+        return await _handle_bot_payment(prefix, value, request)
+
+
+async def _handle_web_payment(order_id: str, request: web.Request) -> web.Response:
+    """Handle confirmed payment from website (payload=web:{order_id})."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT order_id, telegram_username, plan_key, status FROM web_orders WHERE order_id = ?",
+            (order_id,),
+        )
+        order = await cursor.fetchone()
+
+    if not order:
+        logger.warning(f"Platega web callback: order not found: {order_id}")
+        return web.Response(text="ORDER NOT FOUND", status=400)
+
+    if order["status"] == "paid":
+        logger.info(f"Platega web callback: order already paid: {order_id}")
+        return web.Response(text="OK", status=200)
+
+    plan_key = order["plan_key"]
+    telegram_username = order["telegram_username"]
+
+    if plan_key not in PLANS:
+        logger.warning(f"Platega web callback: unknown plan {plan_key}")
+        return web.Response(text="UNKNOWN PLAN", status=400)
+
+    plan = PLANS[plan_key]
+    now = datetime.utcnow()
+    new_end = now + timedelta(days=plan["days"])
+    expire_ts_ms = int(new_end.timestamp() * 1000)
+
+    # Clean username (remove @)
+    clean_username = telegram_username.lstrip("@")
+
+    try:
+        # Create VPN client in 3X-UI
+        await xui_client.create_client(
+            email=clean_username,
+            expire_timestamp_ms=expire_ts_ms,
+            limit_ip=3,
+        )
+        vless_key = await xui_client.get_vless_link(clean_username)
+    except Exception:
+        logger.exception(f"Platega web callback: failed to create 3X-UI client for {clean_username}")
+        return web.Response(text="3XUI ERROR", status=500)
+
+    # Update order in web_orders
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE web_orders SET status = 'paid', vless_key = ? WHERE order_id = ?",
+            (vless_key, order_id),
+        )
+        await db.commit()
+
+    # Create/update user in main users table
+    try:
+        async with async_session() as session:
+            # Look up by username first
+            result = await session.execute(
+                select(User).where(User.username == clean_username)
+            )
+            user = result.scalar_one_or_none()
+
+            if user is None:
+                # Create user with telegram_id=0 (will be updated when they use the bot)
+                user = User(telegram_id=0, username=clean_username)
+                session.add(user)
+
+            user.marzban_username = clean_username
+            user.subscription_end = new_end
+            user.data_limit_gb = 0
+            user.is_active = True
+            user.notifications_sent = ""
+            await session.commit()
+    except Exception:
+        logger.exception(f"Platega web callback: failed to update user DB for {clean_username}")
+
+    logger.info(f"Web payment processed: order={order_id}, user={clean_username}, plan={plan_key}")
+    return web.Response(text="OK", status=200)
+
+
+async def _handle_bot_payment(telegram_id_str: str, plan_key: str, request: web.Request) -> web.Response:
+    """Handle confirmed payment from bot (payload=telegram_id:plan_key)."""
     try:
         telegram_id = int(telegram_id_str)
     except (ValueError, TypeError):
@@ -263,6 +404,7 @@ def create_app(bot=None) -> web.Application:
     app.router.add_get("/api/health", handle_health)
     app.router.add_get("/api/trial", handle_trial)
     app.router.add_post("/api/pay", handle_pay)
+    app.router.add_get("/api/order/{order_id}", handle_order)
     app.router.add_post("/api/platega/callback", handle_platega)
 
     from src.web.admin import register_admin_routes
