@@ -1,5 +1,6 @@
 """HTTP server for free trial VPN keys, web payments, and Platega callbacks."""
 
+import hashlib
 import logging
 import re
 import time
@@ -301,11 +302,28 @@ async def _handle_web_payment(order_id: str, request: web.Request) -> web.Respon
 
     plan = PLANS[plan_key]
     now = datetime.utcnow()
-    new_end = now + timedelta(days=plan["days"])
-    expire_ts_ms = int(new_end.timestamp() * 1000)
 
     # Clean username (remove @)
     clean_username = telegram_username.lstrip("@")
+
+    # Look up existing user to extend subscription if active
+    existing_end = None
+    try:
+        async with async_session() as session:
+            result = await session.execute(
+                select(User).where(User.username == clean_username)
+            )
+            existing_user = result.scalar_one_or_none()
+            if existing_user and existing_user.subscription_end and existing_user.subscription_end > now:
+                existing_end = existing_user.subscription_end
+    except Exception:
+        pass
+
+    if existing_end:
+        new_end = existing_end + timedelta(days=plan["days"])
+    else:
+        new_end = now + timedelta(days=plan["days"])
+    expire_ts_ms = int(new_end.timestamp() * 1000)
 
     try:
         # Check if client already exists in 3X-UI
@@ -359,8 +377,9 @@ async def _handle_web_payment(order_id: str, request: web.Request) -> web.Respon
             user = result.scalar_one_or_none()
 
             if user is None:
-                # Create user with telegram_id=0 (will be updated when they use the bot)
-                user = User(telegram_id=0, username=clean_username)
+                # Generate unique negative telegram_id per username (placeholder until bot login)
+                neg_id = -(int(hashlib.sha256(clean_username.encode()).hexdigest()[:12], 16) + 1)
+                user = User(telegram_id=neg_id, username=clean_username)
                 session.add(user)
 
             user.marzban_username = clean_username

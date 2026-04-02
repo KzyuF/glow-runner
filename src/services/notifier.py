@@ -46,6 +46,7 @@ async def _check_once(bot: Bot) -> None:
             select(User).where(
                 User.is_active.is_(True),
                 User.subscription_end.isnot(None),
+                User.telegram_id > 0,
             )
         )
         users = result.scalars().all()

@@ -81,6 +81,10 @@ async def user_sends_support_message(
 async def admin_reply_start(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
+    # Only admin can reply to support messages
+    if callback.from_user.id != settings.admin_telegram_id:
+        return
+
     parts = callback.data.split(":", 1)
     target_id = parts[1] if len(parts) > 1 else ""
 

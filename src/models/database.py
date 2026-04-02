@@ -19,6 +19,7 @@ class Base(DeclarativeBase):
 
 
 _MIGRATIONS = [
+    "ALTER TABLE users ADD COLUMN notifications_sent TEXT DEFAULT ''",
     "ALTER TABLE users ADD COLUMN referral_code TEXT DEFAULT '' NOT NULL",
     "ALTER TABLE users ADD COLUMN referred_by BIGINT",
     "ALTER TABLE users ADD COLUMN referral_count INTEGER DEFAULT 0 NOT NULL",

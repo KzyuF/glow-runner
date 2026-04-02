@@ -44,10 +44,10 @@ async def get_or_create_user(
     )
     user = result.scalar_one_or_none()
     if user is None:
-        # Check if a user with this username was created via the website (telegram_id=0)
+        # Check if a user with this username was created via the website (negative telegram_id)
         if username:
             result2 = await session.execute(
-                select(User).where(User.username == username, User.telegram_id == 0)
+                select(User).where(User.username == username, User.telegram_id < 0)
             )
             user = result2.scalar_one_or_none()
             if user is not None:
@@ -84,7 +84,6 @@ async def activate_subscription(
         # Existing client — get UUID from the stored email and update
         client_email = user.marzban_username
         link = await xui_client.get_vless_link(client_email)
-        # Extract UUID from vless://UUID@...
         client_uuid = _extract_uuid_from_vless(link)
         await xui_client.update_client(
             client_uuid=client_uuid,
@@ -92,11 +91,26 @@ async def activate_subscription(
             expire_timestamp_ms=expire_ts_ms,
         )
     else:
-        # Create new 3X-UI client
-        await xui_client.create_client(
-            email=client_email,
-            expire_timestamp_ms=expire_ts_ms,
-        )
+        # Check if client already exists in 3X-UI (e.g. created via web)
+        existing = False
+        try:
+            link = await xui_client.get_vless_link(client_email)
+            existing = True
+        except (ValueError, Exception):
+            pass
+
+        if existing:
+            client_uuid = _extract_uuid_from_vless(link)
+            await xui_client.update_client(
+                client_uuid=client_uuid,
+                email=client_email,
+                expire_timestamp_ms=expire_ts_ms,
+            )
+        else:
+            await xui_client.create_client(
+                email=client_email,
+                expire_timestamp_ms=expire_ts_ms,
+            )
         user.marzban_username = client_email
 
     user.subscription_end = new_end

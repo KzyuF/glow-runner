@@ -1,6 +1,7 @@
 """Profile handler."""
 
 import logging
+from datetime import datetime
 
 from aiogram import Router
 from aiogram.types import CallbackQuery
@@ -43,5 +44,10 @@ async def show_profile(callback: CallbackQuery, session: AsyncSession) -> None:
             logger.exception("Ошибка получения данных из 3X-UI")
             text += "Трафик: нет данных" + SUPPORT_NOTE + "\n"
 
-    kb = renew_kb() if not user.is_active else back_to_main_kb()
+    # Show renew button if no subscription or expired
+    has_active_sub = (
+        user.subscription_end is not None
+        and user.subscription_end > datetime.utcnow()
+    )
+    kb = back_to_main_kb() if has_active_sub else renew_kb()
     await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")

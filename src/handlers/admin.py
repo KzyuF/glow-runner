@@ -47,7 +47,9 @@ async def cmd_broadcast(message: Message, session: AsyncSession, bot: Bot) -> No
         await message.answer("Использование: /broadcast <сообщение>")
         return
 
-    result = await session.execute(select(User.telegram_id))
+    result = await session.execute(
+        select(User.telegram_id).where(User.telegram_id > 0)
+    )
     user_ids = [row[0] for row in result.all()]
 
     sent = 0
