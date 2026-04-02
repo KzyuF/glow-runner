@@ -396,12 +396,17 @@ async def _handle_bot_payment(telegram_id_str: str, plan_key: str, request: web.
     try:
         async with async_session() as session:
             user = await get_or_create_user(session, telegram_id, username=None)
-            await activate_subscription(session, user, plan_key, bot=bot)
+            vless_link = await activate_subscription(session, user, plan_key, bot=bot)
 
         await bot.send_message(
             telegram_id,
-            "✅ Оплата прошла! Ваша подписка активирована.\n"
-            "Нажмите «🔑 Мой VPN-ключ» чтобы получить ключ.",
+            "✅ Оплата прошла! Ваша подписка активирована.",
+        )
+        await bot.send_message(
+            telegram_id,
+            f"🔑 Ваш VPN-ключ:\n\n<code>{vless_link}</code>\n\n"
+            "Скопируйте и вставьте в приложение (HAPP, Hiddify или V2RayNG).",
+            parse_mode="HTML",
         )
         logger.info(f"Platega payment processed: tg={telegram_id}, plan={plan_key}")
     except Exception:
