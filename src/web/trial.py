@@ -1,6 +1,7 @@
 """HTTP server for free trial VPN keys, web payments, and Platega callbacks."""
 
 import logging
+import re
 import time
 import uuid as uuid_mod
 from datetime import datetime, timedelta
@@ -182,7 +183,7 @@ async def handle_pay(request: web.Request) -> web.Response:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
             resp = await client.post(
                 PLATEGA_API_URL,
                 json=body,
@@ -307,15 +308,37 @@ async def _handle_web_payment(order_id: str, request: web.Request) -> web.Respon
     clean_username = telegram_username.lstrip("@")
 
     try:
-        # Create VPN client in 3X-UI
-        await xui_client.create_client(
-            email=clean_username,
-            expire_timestamp_ms=expire_ts_ms,
-            limit_ip=3,
-        )
-        vless_key = await xui_client.get_vless_link(clean_username)
+        # Check if client already exists in 3X-UI
+        existing = False
+        try:
+            vless_key = await xui_client.get_vless_link(clean_username)
+            existing = True
+        except (ValueError, Exception):
+            pass
+
+        if existing:
+            # Update existing client — extract UUID and update expiry
+            m = re.match(r"^vless://([^@]+)@", vless_key)
+            if not m:
+                raise RuntimeError(f"Cannot extract UUID from vless link for {clean_username}")
+            client_uuid = m.group(1)
+            await xui_client.update_client(
+                client_uuid=client_uuid,
+                email=clean_username,
+                expire_timestamp_ms=expire_ts_ms,
+            )
+            # Re-fetch link after update
+            vless_key = await xui_client.get_vless_link(clean_username)
+        else:
+            # Create new VPN client in 3X-UI
+            await xui_client.create_client(
+                email=clean_username,
+                expire_timestamp_ms=expire_ts_ms,
+                limit_ip=3,
+            )
+            vless_key = await xui_client.get_vless_link(clean_username)
     except Exception:
-        logger.exception(f"Platega web callback: failed to create 3X-UI client for {clean_username}")
+        logger.exception(f"Platega web callback: failed to create/update 3X-UI client for {clean_username}")
         return web.Response(text="3XUI ERROR", status=500)
 
     # Update order in web_orders

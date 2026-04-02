@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class XUIClient:
     def __init__(self) -> None:
         self.base_url = settings.marzban_address.rstrip("/")
-        self._client = httpx.AsyncClient(timeout=15.0)
+        self._client = httpx.AsyncClient(timeout=15.0, verify=False)
         self._logged_in = False
 
     async def _login(self) -> None:
