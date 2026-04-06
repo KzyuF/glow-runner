@@ -41,7 +41,7 @@ class XUIClient:
         resp = await self._client.request(
             method, f"{self.base_url}{path}", **kwargs
         )
-        if resp.status_code == 401:
+        if resp.status_code in (401, 404):
             self._logged_in = False
             await self._login()
             resp = await self._client.request(
