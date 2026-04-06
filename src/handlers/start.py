@@ -1,6 +1,7 @@
-"""/start command, registration, referral, and fallback handler."""
+"""/start command, registration, referral, trial activation, and fallback handler."""
 
 import logging
+import time
 
 from aiogram import Router
 from aiogram.filters import Command, CommandObject, CommandStart
@@ -11,9 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.bot.keyboards import back_to_main_kb, howto_back_kb, howto_platforms_kb, info_kb, main_menu_kb
 from src.models.user import User
 from src.services.subscription import get_or_create_user
+from src.services.xui_client import xui_client
 
 router = Router()
 logger = logging.getLogger(__name__)
+
+TRIAL_HOURS = 6
 
 WELCOME_TEXT = (
     "🌐 Добро пожаловать в GlowVPN!\n\n"
@@ -22,6 +26,13 @@ WELCOME_TEXT = (
     "🔒 Безлимитный трафик\n"
     "📱 До 3 устройств\n"
     "🕐 Подключение за 1 минуту\n\n"
+    "Выберите действие:"
+)
+
+WELCOME_NO_SUB_TEXT = (
+    "🌐 С возвращением в GlowVPN!\n\n"
+    "У вас нет активной подписки.\n"
+    "💡 Купите подписку чтобы получить VPN на 3 устройства!\n\n"
     "Выберите действие:"
 )
 
@@ -100,45 +111,87 @@ HOWTO_MACOS = (
 )
 
 
-@router.message(CommandStart(deep_link=True))
-async def cmd_start_deep(message: Message, command: CommandObject, session: AsyncSession) -> None:
+async def _handle_start(message: Message, session: AsyncSession, referral_code: str | None = None) -> None:
+    """Common /start logic: create user, handle referral, activate trial if new."""
     user = await get_or_create_user(
         session,
         telegram_id=message.from_user.id,
         username=message.from_user.username,
+        first_name=message.from_user.first_name,
     )
 
     # Handle referral deep link
-    args = command.args or ""
-    if args.startswith("ref_"):
-        ref_code = args[4:]
-        # Don't allow self-referral, and only set once
-        if not user.referred_by:
-            result = await session.execute(
-                select(User).where(
-                    User.referral_code == ref_code,
-                    User.telegram_id != user.telegram_id,
-                )
+    if referral_code and not user.referred_by:
+        result = await session.execute(
+            select(User).where(
+                User.referral_code == referral_code,
+                User.telegram_id != user.telegram_id,
             )
-            referrer = result.scalar_one_or_none()
-            if referrer:
-                user.referred_by = referrer.telegram_id
-                await session.commit()
-                logger.info(
-                    "User %s referred by %s", user.telegram_id, referrer.telegram_id
-                )
+        )
+        referrer = result.scalar_one_or_none()
+        if referrer:
+            user.referred_by = referrer.telegram_id
+            await session.commit()
+            logger.info("User %s referred by %s", user.telegram_id, referrer.telegram_id)
 
-    await message.answer(WELCOME_TEXT, reply_markup=main_menu_kb())
+    # Trial activation: only if no VPN account and trial not used
+    if not user.marzban_username and not user.trial_used:
+        client_email = str(message.from_user.id)
+        expire_ms = (int(time.time()) + TRIAL_HOURS * 3600) * 1000
+
+        try:
+            await xui_client.create_client(
+                email=client_email,
+                expire_timestamp_ms=expire_ms,
+                limit_ip=1,
+            )
+            vless_key = await xui_client.get_vless_link(client_email)
+
+            user.marzban_username = client_email
+            user.trial_used = True
+            await session.commit()
+
+            trial_text = (
+                "👋 Добро пожаловать в GlowVPN!\n\n"
+                "🎁 Вам активирован бесплатный пробный период на 6 часов!\n\n"
+                "🔑 Ваш VPN-ключ:\n"
+                f"<code>{vless_key}</code>\n\n"
+                "📱 Скопируйте ключ и вставьте в приложение:\n"
+                "• Android — HAPP, Hiddify, v2RayTun\n"
+                "• iPhone — HAPP Plus, Npv Tunnel\n"
+                "• Windows/Mac — Hiddify, HAPP\n\n"
+                "⏱ Пробный период: 6 часов, 1 устройство\n"
+                "💡 Купите подписку чтобы продлить ключ до 3 устройств!"
+            )
+            await message.answer(trial_text, reply_markup=main_menu_kb(), parse_mode="HTML")
+            return
+        except Exception:
+            logger.exception("Failed to create trial for user %s", message.from_user.id)
+            # Fall through to normal welcome if trial creation fails
+
+    # Has active subscription or trial already used
+    from datetime import datetime
+    has_active = (
+        user.subscription_end is not None
+        and user.subscription_end > datetime.utcnow()
+    )
+
+    if has_active:
+        await message.answer(WELCOME_TEXT, reply_markup=main_menu_kb())
+    else:
+        await message.answer(WELCOME_NO_SUB_TEXT, reply_markup=main_menu_kb())
+
+
+@router.message(CommandStart(deep_link=True))
+async def cmd_start_deep(message: Message, command: CommandObject, session: AsyncSession) -> None:
+    args = command.args or ""
+    ref_code = args[4:] if args.startswith("ref_") else None
+    await _handle_start(message, session, referral_code=ref_code)
 
 
 @router.message(CommandStart())
 async def cmd_start(message: Message, session: AsyncSession) -> None:
-    await get_or_create_user(
-        session,
-        telegram_id=message.from_user.id,
-        username=message.from_user.username,
-    )
-    await message.answer(WELCOME_TEXT, reply_markup=main_menu_kb())
+    await _handle_start(message, session)
 
 
 @router.message(Command("menu"))

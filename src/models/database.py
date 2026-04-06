@@ -24,6 +24,8 @@ _MIGRATIONS = [
     "ALTER TABLE users ADD COLUMN referred_by BIGINT",
     "ALTER TABLE users ADD COLUMN referral_count INTEGER DEFAULT 0 NOT NULL",
     "ALTER TABLE users ADD COLUMN referral_bonus_given BOOLEAN DEFAULT 0 NOT NULL",
+    "ALTER TABLE users ADD COLUMN trial_used INTEGER DEFAULT 0 NOT NULL",
+    "ALTER TABLE users ADD COLUMN first_name TEXT",
 ]
 
 

@@ -27,17 +27,11 @@ def _extract_uuid_from_vless(link: str) -> str:
     return m.group(1)
 
 
-def _make_client_email(telegram_username: str | None, telegram_id: int) -> str:
-    """Use Telegram @username if available, otherwise tg_{id}."""
-    if telegram_username:
-        return telegram_username
-    return f"tg_{telegram_id}"
-
-
 async def get_or_create_user(
     session: AsyncSession,
     telegram_id: int,
     username: str | None,
+    first_name: str | None = None,
 ) -> User:
     result = await session.execute(
         select(User).where(User.telegram_id == telegram_id)
@@ -52,12 +46,25 @@ async def get_or_create_user(
             user = result2.scalar_one_or_none()
             if user is not None:
                 user.telegram_id = telegram_id
+                if first_name:
+                    user.first_name = first_name
                 await session.commit()
                 return user
-        user = User(telegram_id=telegram_id, username=username)
+        user = User(telegram_id=telegram_id, username=username, first_name=first_name)
         session.add(user)
         await session.commit()
         await session.refresh(user)
+    else:
+        # Update username and first_name if changed
+        changed = False
+        if username and user.username != username:
+            user.username = username
+            changed = True
+        if first_name and user.first_name != first_name:
+            user.first_name = first_name
+            changed = True
+        if changed:
+            await session.commit()
     return user
 
 
@@ -78,10 +85,9 @@ async def activate_subscription(
         new_end = now + timedelta(days=plan["days"])
 
     expire_ts_ms = int(new_end.timestamp() * 1000)
-    client_email = _make_client_email(user.username, user.telegram_id)
 
     if user.marzban_username:
-        # Existing client — get UUID from the stored email and update
+        # Existing client — update expire and set limitIp=3 (paid subscription)
         client_email = user.marzban_username
         link = await xui_client.get_vless_link(client_email)
         client_uuid = _extract_uuid_from_vless(link)
@@ -89,9 +95,12 @@ async def activate_subscription(
             client_uuid=client_uuid,
             email=client_email,
             expire_timestamp_ms=expire_ts_ms,
+            limit_ip=3,
         )
     else:
-        # Check if client already exists in 3X-UI (e.g. created via web)
+        # New client — use telegram_id as email
+        client_email = str(user.telegram_id)
+        # Check if client already exists in 3X-UI (e.g. created via trial or web)
         existing = False
         try:
             link = await xui_client.get_vless_link(client_email)
@@ -105,11 +114,13 @@ async def activate_subscription(
                 client_uuid=client_uuid,
                 email=client_email,
                 expire_timestamp_ms=expire_ts_ms,
+                limit_ip=3,
             )
         else:
             await xui_client.create_client(
                 email=client_email,
                 expire_timestamp_ms=expire_ts_ms,
+                limit_ip=3,
             )
         user.marzban_username = client_email
 

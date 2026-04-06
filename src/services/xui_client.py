@@ -103,8 +103,9 @@ class XUIClient:
         client_uuid: str,
         email: str,
         expire_timestamp_ms: int,
+        limit_ip: int = 3,
     ) -> None:
-        """Update client expiry and re-enable."""
+        """Update client expiry, limitIp and re-enable."""
         inbound = await self._get_reality_inbound()
         inbound_id = inbound["id"]
 
@@ -115,7 +116,7 @@ class XUIClient:
             "enable": True,
             "expiryTime": expire_timestamp_ms,
             "totalGB": 0,
-            "limitIp": 3,
+            "limitIp": limit_ip,
         }
 
         payload = {
