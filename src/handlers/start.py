@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.bot.keyboards import back_to_main_kb, howto_back_kb, howto_platforms_kb, info_kb, main_menu_kb
 from src.models.user import User
-from src.services.subscription import ensure_xui_client, get_or_create_user
+from src.services.subscription import ensure_xui_client, get_or_create_user, make_client_email
 from src.services.xui_client import xui_client
 
 router = Router()
@@ -136,7 +136,7 @@ async def _handle_start(message: Message, session: AsyncSession, referral_code: 
 
     # Trial activation: only if no VPN account and trial not used
     if not user.marzban_username and not user.trial_used:
-        client_email = str(message.from_user.id)
+        client_email = make_client_email(message.from_user.id, message.from_user.username)
         expire_ms = (int(time.time()) + TRIAL_DAYS * 86400) * 1000
 
         try:

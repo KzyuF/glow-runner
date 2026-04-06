@@ -34,6 +34,36 @@ def _is_not_found_error(exc: Exception) -> bool:
     return "not found" in msg or "inbound not found" in msg
 
 
+def make_client_email(telegram_id: int, username: str | None) -> str:
+    """Build 3X-UI client email: '{telegram_id}_{username}' or str(telegram_id)."""
+    if username:
+        return f"{telegram_id}_{username}"
+    return str(telegram_id)
+
+
+async def _find_existing_client(telegram_id: int, username: str | None) -> str | None:
+    """Try to find client in 3X-UI: new format first, then old (bare telegram_id).
+    Returns the email that was found, or None."""
+    # Try new format: {telegram_id}_{username}
+    new_email = make_client_email(telegram_id, username)
+    try:
+        await xui_client.get_vless_link(new_email)
+        return new_email
+    except Exception:
+        pass
+
+    # Try old format: just telegram_id
+    old_email = str(telegram_id)
+    if old_email != new_email:
+        try:
+            await xui_client.get_vless_link(old_email)
+            return old_email
+        except Exception:
+            pass
+
+    return None
+
+
 async def ensure_xui_client(
     session: AsyncSession,
     user: User,
@@ -44,16 +74,23 @@ async def ensure_xui_client(
     if not client_email:
         raise ValueError("User has no marzban_username")
 
+    # Try stored email first
     try:
         return await xui_client.get_vless_link(client_email)
     except Exception as exc:
         if not _is_not_found_error(exc):
             raise
 
-    # Client not found — recreate it
-    logger.warning("3X-UI client %s not found, recreating", client_email)
+    # Stored email not found — try alternate formats (old/new) before recreating
+    found = await _find_existing_client(user.telegram_id, user.username)
+    if found and found != client_email:
+        logger.info("Found client under alternate email %s (was %s), updating DB", found, client_email)
+        user.marzban_username = found
+        await session.commit()
+        return await xui_client.get_vless_link(found)
 
-    # Determine expire: use subscription_end if active, otherwise 1 hour from now
+    # Client truly missing — recreate with current email
+    logger.warning("3X-UI client %s not found, recreating", client_email)
     now = datetime.utcnow()
     if user.subscription_end and user.subscription_end > now:
         expire_ms = int(user.subscription_end.timestamp() * 1000)
@@ -141,34 +178,47 @@ async def activate_subscription(
                 limit_ip=3,
             )
         except Exception as exc:
-            if _is_not_found_error(exc):
-                logger.warning("Client %s not found in 3X-UI during activation, recreating", client_email)
+            if not _is_not_found_error(exc):
+                raise
+            # Try to find under alternate email format
+            found = await _find_existing_client(user.telegram_id, user.username)
+            if found:
+                logger.info("Found client under %s (DB had %s), updating", found, client_email)
+                link = await xui_client.get_vless_link(found)
+                client_uuid = _extract_uuid_from_vless(link)
+                await xui_client.update_client(
+                    client_uuid=client_uuid,
+                    email=found,
+                    expire_timestamp_ms=expire_ts_ms,
+                    limit_ip=3,
+                )
+                client_email = found
+                user.marzban_username = found
+            else:
+                # Truly missing — recreate with new format
+                client_email = make_client_email(user.telegram_id, user.username)
+                logger.warning("Client not found in 3X-UI, creating %s", client_email)
                 await xui_client.create_client(
                     email=client_email,
                     expire_timestamp_ms=expire_ts_ms,
                     limit_ip=3,
                 )
-            else:
-                raise
+                user.marzban_username = client_email
     else:
-        # New client — use telegram_id as email
-        client_email = str(user.telegram_id)
-        # Check if client already exists in 3X-UI (e.g. created via trial or web)
-        existing = False
-        try:
-            link = await xui_client.get_vless_link(client_email)
-            existing = True
-        except (ValueError, Exception):
-            pass
-
-        if existing:
+        # New client — build email in new format
+        client_email = make_client_email(user.telegram_id, user.username)
+        # Check if client already exists in 3X-UI (new or old format)
+        found = await _find_existing_client(user.telegram_id, user.username)
+        if found:
+            link = await xui_client.get_vless_link(found)
             client_uuid = _extract_uuid_from_vless(link)
             await xui_client.update_client(
                 client_uuid=client_uuid,
-                email=client_email,
+                email=found,
                 expire_timestamp_ms=expire_ts_ms,
                 limit_ip=3,
             )
+            client_email = found
         else:
             await xui_client.create_client(
                 email=client_email,
