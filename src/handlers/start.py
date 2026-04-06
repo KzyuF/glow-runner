@@ -17,7 +17,7 @@ from src.services.xui_client import xui_client
 router = Router()
 logger = logging.getLogger(__name__)
 
-TRIAL_HOURS = 6
+TRIAL_DAYS = 3
 
 WELCOME_TEXT = (
     "🌐 Добро пожаловать в GlowVPN!\n\n"
@@ -137,7 +137,7 @@ async def _handle_start(message: Message, session: AsyncSession, referral_code: 
     # Trial activation: only if no VPN account and trial not used
     if not user.marzban_username and not user.trial_used:
         client_email = str(message.from_user.id)
-        expire_ms = (int(time.time()) + TRIAL_HOURS * 3600) * 1000
+        expire_ms = (int(time.time()) + TRIAL_DAYS * 86400) * 1000
 
         try:
             await xui_client.create_client(
@@ -153,14 +153,14 @@ async def _handle_start(message: Message, session: AsyncSession, referral_code: 
 
             trial_text = (
                 "👋 Добро пожаловать в GlowVPN!\n\n"
-                "🎁 Вам активирован бесплатный пробный период на 6 часов!\n\n"
+                "🎁 Вам активирован бесплатный пробный период на 3 дня!\n\n"
                 "🔑 Ваш VPN-ключ:\n"
                 f"<code>{vless_key}</code>\n\n"
                 "📱 Скопируйте ключ и вставьте в приложение:\n"
                 "• Android — HAPP, Hiddify, v2RayTun\n"
                 "• iPhone — HAPP Plus, Npv Tunnel\n"
                 "• Windows/Mac — Hiddify, HAPP\n\n"
-                "⏱ Пробный период: 6 часов, 1 устройство\n"
+                "⏱ Пробный период: 3 дня, 1 устройство\n"
                 "💡 Купите подписку чтобы продлить ключ до 3 устройств!"
             )
             await message.answer(trial_text, reply_markup=main_menu_kb(), parse_mode="HTML")

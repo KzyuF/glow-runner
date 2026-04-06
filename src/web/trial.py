@@ -23,7 +23,7 @@ from sqlalchemy import select
 logger = logging.getLogger(__name__)
 
 DB_PATH = "data/trials.db"
-TRIAL_HOURS = 6
+TRIAL_DAYS = 3
 COOLDOWN_SECONDS = 24 * 3600  # 24 hours
 
 
@@ -107,7 +107,7 @@ async def handle_trial(request: web.Request) -> web.Response:
             )
 
         email = f"trial_{now}"
-        expire_ms = (now + TRIAL_HOURS * 3600) * 1000
+        expire_ms = (now + TRIAL_DAYS * 86400) * 1000
 
         try:
             await xui_client.create_client(
@@ -129,7 +129,7 @@ async def handle_trial(request: web.Request) -> web.Response:
         )
         await db.commit()
 
-    return web.json_response({"key": link, "expires_in": "6 часов"})
+    return web.json_response({"key": link, "expires_in": "3 дня"})
 
 
 # ── Web payment (Platega) ─────────────────────────────────────
