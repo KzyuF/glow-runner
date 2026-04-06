@@ -2,6 +2,7 @@
 
 import logging
 import re
+import time
 from datetime import datetime, timedelta
 
 from aiogram import Bot
@@ -25,6 +26,47 @@ def _extract_uuid_from_vless(link: str) -> str:
     if not m:
         raise ValueError(f"Cannot extract UUID from vless link: {link[:60]}")
     return m.group(1)
+
+
+def _is_not_found_error(exc: Exception) -> bool:
+    """Check if exception indicates client not found in 3X-UI."""
+    msg = str(exc).lower()
+    return "not found" in msg or "inbound not found" in msg
+
+
+async def ensure_xui_client(
+    session: AsyncSession,
+    user: User,
+    limit_ip: int = 3,
+) -> str:
+    """Ensure user's 3X-UI client exists. Recreate if missing. Returns vless link."""
+    client_email = user.marzban_username
+    if not client_email:
+        raise ValueError("User has no marzban_username")
+
+    try:
+        return await xui_client.get_vless_link(client_email)
+    except Exception as exc:
+        if not _is_not_found_error(exc):
+            raise
+
+    # Client not found — recreate it
+    logger.warning("3X-UI client %s not found, recreating", client_email)
+
+    # Determine expire: use subscription_end if active, otherwise 1 hour from now
+    now = datetime.utcnow()
+    if user.subscription_end and user.subscription_end > now:
+        expire_ms = int(user.subscription_end.timestamp() * 1000)
+    else:
+        expire_ms = int((now.timestamp() + 3600) * 1000)
+
+    await xui_client.create_client(
+        email=client_email,
+        expire_timestamp_ms=expire_ms,
+        limit_ip=limit_ip,
+    )
+
+    return await xui_client.get_vless_link(client_email)
 
 
 async def get_or_create_user(
@@ -87,16 +129,27 @@ async def activate_subscription(
     expire_ts_ms = int(new_end.timestamp() * 1000)
 
     if user.marzban_username:
-        # Existing client — update expire and set limitIp=3 (paid subscription)
         client_email = user.marzban_username
-        link = await xui_client.get_vless_link(client_email)
-        client_uuid = _extract_uuid_from_vless(link)
-        await xui_client.update_client(
-            client_uuid=client_uuid,
-            email=client_email,
-            expire_timestamp_ms=expire_ts_ms,
-            limit_ip=3,
-        )
+        # Try to update existing client; recreate if not found in 3X-UI
+        try:
+            link = await xui_client.get_vless_link(client_email)
+            client_uuid = _extract_uuid_from_vless(link)
+            await xui_client.update_client(
+                client_uuid=client_uuid,
+                email=client_email,
+                expire_timestamp_ms=expire_ts_ms,
+                limit_ip=3,
+            )
+        except Exception as exc:
+            if _is_not_found_error(exc):
+                logger.warning("Client %s not found in 3X-UI during activation, recreating", client_email)
+                await xui_client.create_client(
+                    email=client_email,
+                    expire_timestamp_ms=expire_ts_ms,
+                    limit_ip=3,
+                )
+            else:
+                raise
     else:
         # New client — use telegram_id as email
         client_email = str(user.telegram_id)

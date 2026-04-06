@@ -11,7 +11,7 @@ import qrcode
 
 from src.bot.keyboards import back_to_main_kb
 from src.services.xui_client import xui_client
-from src.services.subscription import get_or_create_user
+from src.services.subscription import ensure_xui_client, get_or_create_user
 from src.utils.helpers import bytes_to_gb
 
 router = Router()
@@ -38,8 +38,11 @@ async def show_key(callback: CallbackQuery, session: AsyncSession) -> None:
         return
 
     try:
-        link = await xui_client.get_vless_link(user.marzban_username)
-        usage = await xui_client.get_client_traffic(user.marzban_username)
+        link = await ensure_xui_client(session, user)
+        try:
+            usage = await xui_client.get_client_traffic(user.marzban_username)
+        except Exception:
+            usage = {"used_traffic": 0}
     except Exception:
         logger.exception("Ошибка получения данных из 3X-UI")
         await callback.message.edit_text(
