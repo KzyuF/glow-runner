@@ -2,6 +2,7 @@
 
 import logging
 import time
+from datetime import datetime, timedelta
 
 from aiogram import Router
 from aiogram.filters import Command, CommandObject, CommandStart
@@ -149,6 +150,7 @@ async def _handle_start(message: Message, session: AsyncSession, referral_code: 
 
             user.marzban_username = client_email
             user.trial_used = True
+            user.subscription_end = datetime.utcnow() + timedelta(days=TRIAL_DAYS)
             await session.commit()
 
             trial_text = (
@@ -170,7 +172,6 @@ async def _handle_start(message: Message, session: AsyncSession, referral_code: 
             # Fall through to normal welcome if trial creation fails
 
     # Has active subscription or trial already used
-    from datetime import datetime
     has_active = (
         user.subscription_end is not None
         and user.subscription_end > datetime.utcnow()
