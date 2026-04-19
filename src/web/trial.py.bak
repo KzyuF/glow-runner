@@ -239,33 +239,18 @@ async def handle_order(request: web.Request) -> web.Response:
 # ── Platega callback ──────────────────────────────────────────
 
 async def handle_platega(request: web.Request) -> web.Response:
-    # Log ALL headers and body for debugging
-    safe_headers = {k: v for k, v in request.headers.items() if k.lower() not in ("cookie",)}
-    logger.info("Platega callback: headers=%s", safe_headers)
+    # Verify merchant credentials from headers
+    merchant_id = request.headers.get("X-MerchantId", "")
+    secret = request.headers.get("X-Secret", "")
+
+    if merchant_id != settings.platega_merchant_id or secret != settings.platega_secret:
+        logger.warning("Platega callback: invalid credentials")
+        return web.Response(text="DENIED", status=403)
 
     try:
         data = await request.json()
     except Exception:
-        logger.warning("Platega callback: invalid JSON body")
         return web.Response(text="INVALID JSON", status=400)
-
-    logger.info("Platega callback: body=%s", data)
-
-    # Try header auth (our original approach)
-    merchant_id = request.headers.get("X-MerchantId", "")
-    secret = request.headers.get("X-Secret", "")
-    header_ok = (merchant_id == settings.platega_merchant_id and secret == settings.platega_secret)
-
-    # Try body auth (Platega may send credentials in body)
-    body_merchant = data.get("merchantId", data.get("merchant_id", ""))
-    body_ok = (body_merchant == settings.platega_merchant_id)
-
-    if not (header_ok or body_ok):
-        logger.warning(
-            "Platega callback: credential mismatch but ACCEPTING to avoid lost payments. "
-            "Header MerchantId=%s, body merchantId=%s",
-            merchant_id, body_merchant,
-        )
 
     status = data.get("status", "")
     payload = data.get("payload", "")
@@ -436,17 +421,6 @@ async def _handle_bot_payment(telegram_id_str: str, plan_key: str, request: web.
             telegram_id,
             "✅ Оплата прошла! Ваша подписка активирована.",
         )
-
-        # Mark bot payment as paid in web_orders (for pending tracker)
-        try:
-            async with aiosqlite.connect(DB_PATH) as db:
-                await db.execute(
-                    "UPDATE web_orders SET status = 'paid' WHERE order_id = ?",
-                    (f"{telegram_id}:{plan_key}",),
-                )
-                await db.commit()
-        except Exception:
-            pass
         await bot.send_message(
             telegram_id,
             f"🔑 Ваш VPN-ключ:\n\n<code>{vless_link}</code>\n\n"
@@ -468,93 +442,6 @@ async def _handle_bot_payment(telegram_id_str: str, plan_key: str, request: web.
     return web.Response(text="OK", status=200)
 
 
-# ── Pending payments polling ───────────────────────────────────
-
-async def _check_pending_payments(app: web.Application):
-    """Background task: check pending payments every 60s.
-    If payment pending > 5 min, notify admin.
-    If pending > 30 min, try to auto-activate (Platega likely confirmed but callback lost).
-    """
-    await asyncio.sleep(30)  # initial delay
-    notified = set()  # track notified order_ids to avoid spam
-
-    while True:
-        try:
-            await asyncio.sleep(60)
-            now = int(time.time())
-
-            async with aiosqlite.connect(DB_PATH) as db:
-                db.row_factory = aiosqlite.Row
-                cursor = await db.execute(
-                    "SELECT order_id, telegram_username, plan_key, created_at "
-                    "FROM web_orders WHERE status = 'pending' AND created_at > ?",
-                    (now - 86400,),  # only last 24h
-                )
-                pending = await cursor.fetchall()
-
-            bot = app.get("bot")
-
-            for order in pending:
-                order_id = order["order_id"]
-                age_min = (now - order["created_at"]) / 60
-
-                if age_min < 5:
-                    continue  # too fresh, user may still be paying
-
-                if order_id in notified:
-                    continue
-
-                username = order["telegram_username"]
-                plan_key = order["plan_key"]
-
-                # Notify admin
-                if bot:
-                    try:
-                        from src.utils.config import settings as s
-                        admin_id = getattr(s, "admin_id", None) or 706575799
-                        await bot.send_message(
-                            admin_id,
-                            f"⚠️ Pending платёж > {int(age_min)} мин!\n"
-                            f"User: @{username}\n"
-                            f"Тариф: {plan_key}\n"
-                            f"Order: {order_id}\n\n"
-                            f"Callback от Platega не пришёл.\n"
-                            f"Проверь оплату в Platega dashboard.",
-                        )
-                        logger.warning(
-                            "Pending payment alert: order=%s user=%s plan=%s age=%dm",
-                            order_id, username, plan_key, int(age_min)
-                        )
-                    except Exception as e:
-                        logger.error("Failed to notify admin about pending payment: %s", e)
-
-                notified.add(order_id)
-
-                # Clean up old notified entries
-                notified = {oid for oid in notified if oid in {o["order_id"] for o in pending}}
-
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            logger.error("Pending payments checker error: %s", e)
-            await asyncio.sleep(60)
-
-
-import asyncio
-
-async def _start_pending_checker(app: web.Application):
-    app["pending_checker"] = asyncio.create_task(_check_pending_payments(app))
-
-async def _stop_pending_checker(app: web.Application):
-    task = app.get("pending_checker")
-    if task:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-
 # ── App setup ──────────────────────────────────────────────────
 
 def create_app(bot=None) -> web.Application:
@@ -566,10 +453,6 @@ def create_app(bot=None) -> web.Application:
     app.router.add_post("/api/pay", handle_pay)
     app.router.add_get("/api/order/{order_id}", handle_order)
     app.router.add_post("/api/platega/callback", handle_platega)
-
-    # Start pending payments checker
-    app.on_startup.append(_start_pending_checker)
-    app.on_cleanup.append(_stop_pending_checker)
 
     from src.web.admin import register_admin_routes
     register_admin_routes(app)

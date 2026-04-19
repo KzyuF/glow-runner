@@ -436,17 +436,6 @@ async def _handle_bot_payment(telegram_id_str: str, plan_key: str, request: web.
             telegram_id,
             "✅ Оплата прошла! Ваша подписка активирована.",
         )
-
-        # Mark bot payment as paid in web_orders (for pending tracker)
-        try:
-            async with aiosqlite.connect(DB_PATH) as db:
-                await db.execute(
-                    "UPDATE web_orders SET status = 'paid' WHERE order_id = ?",
-                    (f"{telegram_id}:{plan_key}",),
-                )
-                await db.commit()
-        except Exception:
-            pass
         await bot.send_message(
             telegram_id,
             f"🔑 Ваш VPN-ключ:\n\n<code>{vless_link}</code>\n\n"

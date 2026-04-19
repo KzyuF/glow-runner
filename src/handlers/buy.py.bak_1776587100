@@ -2,7 +2,6 @@
 
 import logging
 import time
-import aiosqlite
 
 import httpx
 from aiogram import Bot, Router
@@ -203,19 +202,6 @@ async def send_platega_link(callback: CallbackQuery) -> None:
         redirect_url = data.get("redirect")
         if not redirect_url:
             raise ValueError(f"No redirect in Platega response: {data}")
-
-        # Track bot payment in web_orders for pending monitoring
-        try:
-            async with aiosqlite.connect("data/trials.db") as db:
-                await db.execute(
-                    "INSERT OR IGNORE INTO web_orders "
-                    "(order_id, telegram_username, plan_key, status, vless_key, created_at) "
-                    "VALUES (?, ?, ?, 'pending', '', ?)",
-                    (payload_str, str(user_id), plan_key, int(time.time())),
-                )
-                await db.commit()
-        except Exception as track_err:
-            logger.warning("Failed to track bot payment: %s", track_err)
 
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
